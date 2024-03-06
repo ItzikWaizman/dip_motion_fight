@@ -11,3 +11,7 @@ class Parameters(object):
 
         # Max number of pending game command request
         self.params['work_request_buffer_max_size'] = 100
+
+        # Displays
+        self.params['display_preprocess'] = True
+        self.params['display_centroid'] = False  # keep false until issue with display is resolved
