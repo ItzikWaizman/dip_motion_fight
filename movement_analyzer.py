@@ -2,6 +2,7 @@ from threading import Thread
 import cv2
 import numpy as np
 import utils
+import time
 
 
 class MovementAnalyzer:
@@ -16,6 +17,7 @@ class MovementAnalyzer:
         self.frame_reader = frame_reader
         self.command_api = command_api
         self.display = params['display_centroid']
+        self.running = True
         self._init_kalman_filter()
 
     def _init_kalman_filter(self):
@@ -47,8 +49,11 @@ class MovementAnalyzer:
 
     def start_analysis(self):
         # TODO: Need to implement reading of a frame and spread it to both threads.
-        # Thread(target=self.analyze_gestures, daemon=True).start()
-        Thread(target=self.track_motion, daemon=False).start()
+        # th1 =  Thread(target=self.analyze_gestures, daemon=True)
+        # th1.start()
+        th2 = Thread(target=self.track_motion, daemon=True)
+        th2.start()
+        return th2
 
     def analyze_gestures(self):
 
@@ -77,19 +82,24 @@ class MovementAnalyzer:
         This can be implemented using Kalman filter or center of mass tracking.        
         """
 
-        while True:
-            frame = self.frame_reader.get_frame()
-            if frame is not None:
-                cx, cy, vx, vy = self.estimate_centroid(frame)
+        while self.running:
+            fgMask = self.frame_reader.get_frame()
+            if fgMask is not None:
+                cx, cy, vx, vy = self.estimate_centroid(fgMask)
                 cx = int(cx)
                 cy = int(cy)
                 print(f"speed: {vx},{vy}")
                 if self.display:
-                    pass
-                    # TODO: Figure out how to display the centroid - can't plot a red dot on a binary frame.
+                    frame = cv2.cvtColor(fgMask, cv2.COLOR_GRAY2BGR)
                     centroid_frame = cv2.circle(frame, (cx, cy), radius=5, color=(0, 0, 255), thickness=-1)
+                    centroid_frame = cv2.putText(img=centroid_frame, text=f"speed: {int(vx)},{int(vy)}", org=(15, 30),
+                                                 fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1,
+                                                 color=(0, 0, 255), thickness=2, lineType=cv2.LINE_AA)
                     cv2.imshow("Centroid Frame", centroid_frame)
                     if cv2.waitKey(1) & 0xFF == ord('q'):  # Break loop with 'q' key
                         break
+            else:
+                time.sleep(0.03)
 
         print("Track-Motion Terminated...")
+

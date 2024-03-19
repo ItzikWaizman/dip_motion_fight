@@ -2,7 +2,8 @@ import queue
 import cv2
 import numpy as np
 from threading import Thread
-from movement_analyzer import MovementAnalyzer
+import utils
+import time
 
 
 class FrameReader:
@@ -16,46 +17,90 @@ class FrameReader:
         self.frame_buffer = queue.Queue(maxsize=params['frame_buffer_size'])
         self.capture = cv2.VideoCapture(0)  # Assuming default camera
         self.background = None
+        self.fps = 0
+        self.backSub = cv2.createBackgroundSubtractorKNN(history=params['history'],
+                                                         dist2Threshold=params['dist2thresh'],
+                                                         detectShadows=False)
+        self.backSub.setkNNSamples(4)
+        '''self.backSub = cv2.createBackgroundSubtractorMOG2(history=params['history'],
+                                                          varThreshold=params['max_var'],
+                                                          detectShadows=False)'''
         self.display = params['display_preprocess']
+        self.params = params
 
     def start_capture(self):
-        Thread(target=self.read_frames, daemon=True).start()
+        th = Thread(target=self.read_frames, daemon=True)
+        th.start()
+        return th
 
     def read_frames(self):
+        i = 0
+        start_time = time.time()
         while True:
             ret, frame = self.capture.read()
             if not ret:
                 break
-            segmented_frame = self.segment_player(frame)
-            if not self.frame_buffer.full():
-                self.frame_buffer.put(segmented_frame)
+
+            # Compute fgMask
+            fgMask = self.segment_player(frame)
+
+            # Equeue foreground mask
+            if self.frame_buffer.full():
+                self.frame_buffer.get()
+            self.frame_buffer.put(fgMask)
+
+            # Display segmentation and background
             if self.display:
-                cv2.imshow("Segmented Frame", segmented_frame)  # Display the segmented frame
-                # cv2.imshow("Original Frame", frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):  # Break loop with 'q' key
+                self.background = self.backSub.getBackgroundImage()
+                if self.params['colorspace'] == "HSV":
+                    self.background = cv2.cvtColor(self.background, cv2.COLOR_HSV2BGR)
+
+                segmented_frame = utils.overlay(image=frame, mask=fgMask, color=(255, 0, 0), alpha=0.7)
+                segmented_frame = cv2.putText(img=segmented_frame, text=f"fps: {self.fps}", org=(15, 30),
+                                              fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1,
+                                              color=(0, 0, 0), thickness=2, lineType=cv2.LINE_AA)
+                cv2.imshow("Player Segmentation", segmented_frame)
+                cv2.imshow("Background Model", self.background)
+
+            # Break loop with 'q' key
+            if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
+
+            # Update fps
+            if i % 10 == 0:
+                elapsed_time = time.time() - start_time
+                start_time = time.time()
+                self.fps = int(10 / elapsed_time)
+            i = i + 1
+
         self.capture.release()
-        cv2.destroyAllWindows()
         print("Frame Reader Terminated...")
 
     def segment_player(self, frame):
-        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        if self.params['colorspace'] == "HSV":
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         # Subtract the background
-        foreground_mask = cv2.absdiff(self.background, gray_frame)
-        # Apply a binary threshold to get a binary mask
-        _, binary_mask = cv2.threshold(foreground_mask, 50, 255, cv2.THRESH_BINARY)
+        fgMask = self.backSub.apply(frame)
+
+        # Erosion and dilation to remove noise and fill gaps
+        erode_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        dilate_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 7))
+        cv2.erode(fgMask, erode_kernel, fgMask, iterations=2)
+        cv2.dilate(fgMask, dilate_kernel, fgMask, iterations=2)
+        '''kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        fgMask = cv2.morphologyEx(fgMask, cv2.MORPH_OPEN, kernel)
+        fgMask = cv2.morphologyEx(fgMask, cv2.MORPH_CLOSE, kernel)'''
 
         # Filter out noise and smaller components, keeping the largest component
-        contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(fgMask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+
         if contours:
             largest_contour = max(contours, key=cv2.contourArea)
-            binary_mask = np.zeros_like(binary_mask)
-            cv2.drawContours(binary_mask, [largest_contour], -1, 255, thickness=cv2.FILLED)
+            fgMask = np.zeros_like(fgMask)
+            cv2.drawContours(fgMask, [largest_contour], -1, 255, thickness=cv2.FILLED)
 
-        # Apply median filter
-        filtered_mask = cv2.medianBlur(binary_mask, 5)
-
-        return filtered_mask
+        return fgMask
 
     def get_frame(self):
         if not self.frame_buffer.empty():

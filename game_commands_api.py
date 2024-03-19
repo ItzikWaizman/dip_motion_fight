@@ -4,6 +4,7 @@ from threading import Thread
 from queue import Queue
 import time
 
+
 class CommandAPI:
 
     """
@@ -39,7 +40,7 @@ class CommandAPI:
         }
         
         # Start the thread that processes work requests
-        self.worker_thread = Thread(target=self.process_work_requests, daemon=True)
+        self.worker_thread = Thread(target=self.process_work_requests, daemon=False)
         self.worker_thread.start()
 
     # API to MovementAnalyzer threads
@@ -56,6 +57,8 @@ class CommandAPI:
                     self.execute_instant_action(command)
 
                 # Wait configurable delay time between consecutive operations.
+                time.sleep(self.delay_time)
+            else:
                 time.sleep(self.delay_time)
 
     def handle_standing(self, command):

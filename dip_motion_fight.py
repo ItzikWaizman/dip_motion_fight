@@ -2,7 +2,6 @@ from config import Parameters
 from frame_reader import FrameReader
 from game_commands_api import CommandAPI
 from movement_analyzer import MovementAnalyzer
-import time
 
 
 def main():
@@ -19,10 +18,13 @@ def main():
     # Create MovementAnalyzer - Implements the actual algorithm to identify movements from FramerReader's data.
     movement_analyzer = MovementAnalyzer(frame_reader, command_api, params)
 
-    frame_reader.calibration()
-    frame_reader.start_capture()
+    frThread = frame_reader.start_capture()
     movement_analyzer.start_analysis()
-    time.sleep(100)
+
+    frThread.join()
+    movement_analyzer.running = False
+    command_api.running = False
+    exit(0)
 
 
 if __name__ == "__main__":
