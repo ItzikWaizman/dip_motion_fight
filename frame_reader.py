@@ -6,6 +6,7 @@ import utils
 import time
 
 
+# noinspection PyTypeChecker
 class FrameReader:
 
     """
@@ -14,17 +15,11 @@ class FrameReader:
     """
 
     def __init__(self, params):
-        self.frame_buffer = queue.Queue(maxsize=params['frame_buffer_size'])
+        self.mask_buffer = queue.Queue(maxsize=params['frame_buffer_size'])
+        self.optflow_buffer = queue.Queue(maxsize=params['frame_buffer_size'])
         self.capture = cv2.VideoCapture(0)  # Assuming default camera
-        self.background = None
+        self.prev_gray = None
         self.fps = 0
-        self.backSub = cv2.createBackgroundSubtractorKNN(history=params['history'],
-                                                         dist2Threshold=params['dist2thresh'],
-                                                         detectShadows=False)
-        self.backSub.setkNNSamples(4)
-        '''self.backSub = cv2.createBackgroundSubtractorMOG2(history=params['history'],
-                                                          varThreshold=params['max_var'],
-                                                          detectShadows=False)'''
         self.display = params['display_preprocess']
         self.params = params
 
@@ -35,32 +30,59 @@ class FrameReader:
 
     def read_frames(self):
         i = 0
+        ret, self.prev_gray = self.capture.read()
+        self.prev_gray = cv2.cvtColor(self.prev_gray, cv2.COLOR_BGR2GRAY)
+        if self.params['resize']:
+            self.prev_gray = cv2.resize(self.prev_gray, (0, 0),
+                                        fx=self.params['resize_factor'], fy=self.params['resize_factor'])
         start_time = time.time()
         while True:
             ret, frame = self.capture.read()
             if not ret:
                 break
 
-            # Compute fgMask
-            fgMask = self.segment_player(frame)
+            if self.params['resize']:
+                frame = cv2.resize(frame, (0, 0),
+                                   fx=self.params['resize_factor'], fy=self.params['resize_factor'])
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            if np.max(gray - self.prev_gray) == 0:
+                continue
+
+            # Compute optical flow
+            hsv_visual = np.zeros_like(frame)
+            hsv_visual[..., 1] = 255
+            opt_flow = cv2.calcOpticalFlowFarneback(self.prev_gray, gray, flow=None, pyr_scale=0.3, levels=3,
+                                                    winsize=15, iterations=5, poly_n=5, poly_sigma=1.1, flags=0)
+            mag, ang = cv2.cartToPolar(opt_flow[..., 0], opt_flow[..., 1])
+            mag = np.where(mag > self.params['mag_thresh'], mag, 0)
+
+            hsv_visual[..., 0] = ang * 180 / np.pi / 2
+            hsv_visual[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
+            visual = cv2.cvtColor(hsv_visual, cv2.COLOR_HSV2BGR)
+            self.prev_gray = gray
+
+            # compute fgMask
+            fgMask = self.segment_player(mag)
 
             # Equeue foreground mask
-            if self.frame_buffer.full():
-                self.frame_buffer.get()
-            self.frame_buffer.put(fgMask)
+            if self.mask_buffer.full():
+                self.mask_buffer.get()
+            self.mask_buffer.put(fgMask)
+
+            # Equeue optical flow
+            if self.optflow_buffer.full():
+                self.optflow_buffer.get()
+            self.optflow_buffer.put(opt_flow)
 
             # Display segmentation and background
             if self.display:
-                self.background = self.backSub.getBackgroundImage()
-                if self.params['colorspace'] == "HSV":
-                    self.background = cv2.cvtColor(self.background, cv2.COLOR_HSV2BGR)
 
                 segmented_frame = utils.overlay(image=frame, mask=fgMask, color=(255, 0, 0), alpha=0.7)
                 segmented_frame = cv2.putText(img=segmented_frame, text=f"fps: {self.fps}", org=(15, 30),
                                               fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1,
-                                              color=(0, 0, 0), thickness=2, lineType=cv2.LINE_AA)
+                                              color=(255, 0, 0), thickness=2, lineType=cv2.LINE_AA)
                 cv2.imshow("Player Segmentation", segmented_frame)
-                cv2.imshow("Background Model", self.background)
+                cv2.imshow("Optical Flow", visual)
 
             # Break loop with 'q' key
             if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -78,19 +100,12 @@ class FrameReader:
 
     def segment_player(self, frame):
 
-        if self.params['colorspace'] == "HSV":
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        # Subtract the background
-        fgMask = self.backSub.apply(frame)
+        _, fgMask = cv2.threshold(frame, self.params['mag_thresh'], 255, cv2.THRESH_BINARY)
+        fgMask = fgMask.astype(np.uint8)
 
         # Erosion and dilation to remove noise and fill gaps
-        erode_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        dilate_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 7))
-        cv2.erode(fgMask, erode_kernel, fgMask, iterations=2)
-        cv2.dilate(fgMask, dilate_kernel, fgMask, iterations=2)
-        '''kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        fgMask = cv2.morphologyEx(fgMask, cv2.MORPH_OPEN, kernel)
-        fgMask = cv2.morphologyEx(fgMask, cv2.MORPH_CLOSE, kernel)'''
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        fgMask = cv2.morphologyEx(fgMask, cv2.MORPH_CLOSE, kernel, iterations=5)
 
         # Filter out noise and smaller components, keeping the largest component
         contours, _ = cv2.findContours(fgMask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
@@ -102,31 +117,12 @@ class FrameReader:
 
         return fgMask
 
-    def get_frame(self):
-        if not self.frame_buffer.empty():
-            return self.frame_buffer.get()
+    def get_mask(self):
+        if not self.mask_buffer.empty():
+            return self.mask_buffer.get()
         return None
-    
-    def calibration(self, total_frames=200, average_over=50):
-        print("Calibrating background...")
-        frame_count = 0
-        while frame_count < total_frames:
-            ret, frame = self.capture.read()
-            if not ret:
-                continue
-            frame_count += 1
-            gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            
-            # Start averaging once the desired starting frame is reached
-            if frame_count == total_frames - average_over + 1:
-                self.background = gray_frame.astype("float")
-            elif frame_count > total_frames - average_over:
-                cv2.accumulateWeighted(gray_frame, self.background, 0.2)
-            
-        # Convert the accumulated background to uint8 for display and processing
-        self.background = cv2.convertScaleAbs(self.background)
-        
-        # Display the background for verification
-        cv2.imshow("Calibrated Background", self.background)
-        cv2.waitKey(0)  # Wait for a key press to close the background display window
-        cv2.destroyAllWindows()
+
+    def get_flow(self):
+        if not self.optflow_buffer.empty():
+            return self.optflow_buffer.get()
+        return None
