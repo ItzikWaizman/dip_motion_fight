@@ -16,9 +16,13 @@ class MovementAnalyzer:
     def __init__(self, frame_reader, command_api, params):
         self.frame_reader = frame_reader
         self.command_api = command_api
-        self.display = params['display_centroid']
+        self.params = params
+        self.display = self.params['display_centroid']
+        self.initialized = False
         self.running = True
         self._init_kalman_filter()
+        self.width = 0
+        self.height = 0
 
     def _init_kalman_filter(self):
         self.kalman = cv2.KalmanFilter(4, 2)
@@ -32,28 +36,38 @@ class MovementAnalyzer:
                                                 [0, 1, 0, 0],
                                                 [0, 0, 1, 0],
                                                 [0, 0, 0, 1]], np.float32)
-        self.kalman.measurementNoiseCov = np.array([[1, 0],
-                                                    [0, 1]], np.float32)
+        self.kalman.measurementNoiseCov = np.array(np.diag(self.params['obs_noise_var']), np.float32)
 
     def estimate_centroid(self, frame):
-        cx, cy = utils.get_centroid(frame)
-        if self.kalman.statePre is not None:
+        if self.params['mask_lower_thresh'] * frame.size < \
+                np.sum(frame == 255) < self.params['mask_upper_thresh'] * frame.size:
+            if self.params["dynamic_bbox"]:
+                cx, cy, self.width, self.height = utils.get_centroid(frame)
+            else:
+                cx, cy, _, _ = utils.get_centroid(frame)
+        else:
+            cx, cy, _, _ = self.kalman.statePost.flatten().tolist()
+        if self.initialized:
             self.kalman.predict()
             self.kalman.correct(np.array([[cx], [cy]], np.float32))
         else:
-            cx, cy = utils.get_centroid(frame)
             self.kalman.statePre = np.array([[cx], [cy], [0], [0]], np.float32)
             self.kalman.statePost = np.array([[cx], [cy], [0], [0]], np.float32)
+            self.width = int(self.params['bbox_base_width'] * frame.shape[1])
+            self.height = int(self.params['bbox_base_height'] * frame.shape[0])
+            self.initialized = True
 
         return self.kalman.statePost.flatten().tolist()
 
     def start_analysis(self):
-        # TODO: Need to implement reading of a frame and spread it to both threads.
-        # th1 =  Thread(target=self.analyze_gestures, daemon=True)
-        # th1.start()
-        th2 = Thread(target=self.track_motion, daemon=True)
-        th2.start()
-        return th2
+        th1 = Thread(target=self.track_motion, daemon=True)
+        th1.start()
+
+        while not self.initialized:
+            time.sleep(1)
+        # th2 =  Thread(target=self.analyze_gestures, daemon=True)
+        # th2.start()
+        return th1
 
     def analyze_gestures(self):
 
@@ -95,6 +109,10 @@ class MovementAnalyzer:
                     centroid_frame = cv2.putText(img=centroid_frame, text=f"speed: {int(vx)},{int(vy)}", org=(15, 30),
                                                  fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1,
                                                  color=(0, 0, 255), thickness=2, lineType=cv2.LINE_AA)
+                    utils.compute_roi(centroid_frame,
+                                      centroid=(cx, cy),
+                                      dimensions=(self.width, self.height),
+                                      params=self.params)
                     cv2.imshow("Centroid Frame", centroid_frame)
                     if cv2.waitKey(1) & 0xFF == ord('q'):  # Break loop with 'q' key
                         break
@@ -102,4 +120,3 @@ class MovementAnalyzer:
                 time.sleep(0.03)
 
         print("Track-Motion Terminated...")
-
