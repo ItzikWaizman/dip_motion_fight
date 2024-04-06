@@ -67,23 +67,42 @@ class MovementAnalyzer:
 
         while not self.initialized:
             time.sleep(1)
-        # th2 =  Thread(target=self.analyze_gestures, daemon=True)
-        # th2.start()
-        return th1
+        th2 = Thread(target=self.analyze_gestures, daemon=True)
+        th2.start()
+        return th1, th2
 
     def analyze_gestures(self):
 
         """
         Analyze press movements such as punch, kick, crouch or jump.
-        Can be implemented using bound box to identify punch/kick, and center of mass tracking
-        to identify crouch/jump.
         """
 
-        while True:
-            frame = self.frame_reader.get_frame()
-            if frame is not None:
-                # TODO: Implement analyze logic
-                return None
+        while self.running:
+            flow = self.frame_reader.get_flow()
+            if flow is not None:
+                cx, cy, _, _ = self.kalman.statePost.flatten().tolist()
+                cx = int(cx)
+                cy = int(cy)
+
+                body_box, punch_box, kick_box = utils.compute_roi(flow.shape,
+                                                                  centroid=(cx, cy),
+                                                                  bbox_shape=(self.width, self.height),
+                                                                  params=self.params,
+                                                                  plot=False)
+
+                # TODO: Use the optical flow in the regions of interest to detect punches/kicks.
+
+                if self.display:
+                    visual = utils.optical_flow_visualization(flow)
+                    cv2.imshow("Optical Flow", visual)
+
+                    if cv2.waitKey(1) & 0xFF == ord('q'):  # Break loop with 'q' key
+                        break
+
+            else:
+                time.sleep(0.03)
+
+        print("Gesture-Analyzer Terminated...")
 
     def track_motion(self):
 
@@ -99,7 +118,7 @@ class MovementAnalyzer:
         """
 
         while self.running:
-            fgMask = self.frame_reader.get_frame()
+            fgMask = self.frame_reader.get_mask()
             if fgMask is not None:
                 cx, cy, vx, vy = self.estimate_centroid(fgMask)
                 cx = int(cx)
@@ -138,10 +157,12 @@ class MovementAnalyzer:
                     centroid_frame = cv2.putText(img=centroid_frame, text=f"speed: {int(vx)},{int(vy)}", org=(15, 30),
                                                  fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1,
                                                  color=(0, 0, 255), thickness=2, lineType=cv2.LINE_AA)
-                    utils.compute_roi(centroid_frame,
+                    utils.compute_roi(fgMask.shape,
                                       centroid=(cx, cy),
-                                      dimensions=(self.width, self.height),
-                                      params=self.params)
+                                      bbox_shape=(self.width, self.height),
+                                      params=self.params,
+                                      plot=True,
+                                      target=centroid_frame)
                     cv2.imshow("Centroid Frame", centroid_frame)
                     if cv2.waitKey(1) & 0xFF == ord('q'):  # Break loop with 'q' key
                         break

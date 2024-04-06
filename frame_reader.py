@@ -14,9 +14,11 @@ class FrameReader:
     """
 
     def __init__(self, params):
-        self.frame_buffer = queue.Queue(maxsize=params['frame_buffer_size'])
+        self.mask_buffer = queue.Queue(maxsize=params['frame_buffer_size'])
+        self.optflow_buffer = queue.Queue(maxsize=params['frame_buffer_size'])
         self.capture = cv2.VideoCapture(0)  # Assuming default camera
         self.background = None
+        self.prev_gray = None
         self.params = params
         self.fps = 0
         self.backSub = cv2.createBackgroundSubtractorKNN(history=self.params['history'],
@@ -32,7 +34,16 @@ class FrameReader:
 
     def read_frames(self):
         i = 0
+
+        # Initialize previous frame
+        ret, self.prev_gray = self.capture.read()
+        if not ret:
+            self.capture.release()
+            print("Error capturing frames...")
+        self.prev_gray = cv2.cvtColor(self.prev_gray, cv2.COLOR_BGR2GRAY)
+
         start_time = time.time()
+
         while True:
             ret, frame = self.capture.read()
             if not ret:
@@ -42,9 +53,20 @@ class FrameReader:
             fgMask = self.segment_player(frame)
 
             # Equeue foreground mask
-            if self.frame_buffer.full():
-                self.frame_buffer.get()
-            self.frame_buffer.put(fgMask)
+            if self.mask_buffer.full():
+                self.mask_buffer.get()
+            self.mask_buffer.put(fgMask)
+
+            # Compute optical flow
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            if np.max(gray - self.prev_gray) != 0:
+                opt_flow = cv2.calcOpticalFlowFarneback(self.prev_gray, gray, flow=None, pyr_scale=0.3, levels=3,
+                                                        winsize=15, iterations=5, poly_n=5, poly_sigma=1.1, flags=0)
+                self.prev_gray = gray
+
+                if self.optflow_buffer.full():
+                    self.optflow_buffer.get()
+                self.optflow_buffer.put(opt_flow)
 
             # Display segmentation and background
             if self.display:
@@ -99,7 +121,12 @@ class FrameReader:
 
         return fgMask
 
-    def get_frame(self):
-        if not self.frame_buffer.empty():
-            return self.frame_buffer.get()
+    def get_mask(self):
+        if not self.mask_buffer.empty():
+            return self.mask_buffer.get()
+        return None
+
+    def get_flow(self):
+        if not self.optflow_buffer.empty():
+            return self.optflow_buffer.get()
         return None
