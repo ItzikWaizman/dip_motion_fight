@@ -26,11 +26,11 @@ class Parameters(object):
         self.params['mask_upper_thresh'] = 0.3
         self.params['mask_lower_thresh'] = 0.14
 
-        # Delay time between consecutive press operations (kick/punch/jump/crouch)
+        # Command API parameters
         self.params['game_commands_delay_time'] = 0.3
-
-        # Max number of pending game command request
         self.params['work_request_buffer_max_size'] = 100
+        self.params['motion_thresh'] = 5
+        self.params['crouch_thresh'] = 0.7
 
         # Displays
         self.params['display_preprocess'] = True

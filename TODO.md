@@ -6,12 +6,18 @@
 - [ ] Propose different features to enhance user's experience, for example:
   - [ ] Voice detection to navigate through game's menu
 - [ ] Try to distinguish between left and right kicks/punches.
+- [ ] Test the command API with actual in game key presses.
+
 
 ### In Progress
 
 - [ ] Test bounding box parameters.
+- [ ] Add optical flow computation for use in instant action detection algorithm.
 - [ ] Implement algorithm to identify instant actions based on optical flow in regions of interest.
+
 
 ### Done ✓
 
 - [x] Add bounding box computation for regions of interest in the image.
+- [x] Implement logic to transition between stand still/left/right motion as well as crouch/upright position.
+- [x] Test the command API general functionality.

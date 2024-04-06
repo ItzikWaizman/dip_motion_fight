@@ -6,7 +6,7 @@ import time
 
 
 class MovementAnalyzer:
-    
+
     """
     Responsibilities: Analyze body movements of the player, as well as keep tracking of player's location
     and post a suitable work request on a dedicated buffer of a CommandAPI object, to be executed and 
@@ -23,6 +23,8 @@ class MovementAnalyzer:
         self._init_kalman_filter()
         self.width = 0
         self.height = 0
+        self.motion_state = "still"
+        self.body_state = "upright"
 
     def _init_kalman_filter(self):
         self.kalman = cv2.KalmanFilter(4, 2)
@@ -41,7 +43,7 @@ class MovementAnalyzer:
     def estimate_centroid(self, frame):
         if self.params['mask_lower_thresh'] * frame.size < \
                 np.sum(frame == 255) < self.params['mask_upper_thresh'] * frame.size:
-            if self.params["dynamic_bbox"]:
+            if self.params['dynamic_bbox']:
                 cx, cy, self.width, self.height = utils.get_centroid(frame)
             else:
                 cx, cy, _, _ = utils.get_centroid(frame)
@@ -102,7 +104,34 @@ class MovementAnalyzer:
                 cx, cy, vx, vy = self.estimate_centroid(fgMask)
                 cx = int(cx)
                 cy = int(cy)
-                print(f"speed: {vx},{vy}")
+
+                # Analyze motion
+                if abs(vx) > self.params['motion_thresh']:
+                    if vx > self.params['motion_thresh']:
+                        if self.motion_state != "left":
+                            self.command_api.add_work_request("left")
+                            self.motion_state = "left"
+                    else:
+                        if self.motion_state != "right":
+                            self.command_api.add_work_request("right")
+                            self.motion_state = "right"
+                else:
+                    if self.motion_state != "still":
+                        self.command_api.add_work_request("still")
+                        self.motion_state = "still"
+
+                # Analyze body position
+                if cy > self.params['crouch_thresh'] * fgMask.shape[0]:
+                    if self.body_state != "crouch":
+                        self.command_api.add_work_request("crouch")
+                        self.body_state = "crouch"
+
+                else:
+                    if self.body_state != "upright":
+                        self.command_api.add_work_request("upright")
+                        self.body_state = "upright"
+
+                # Display
                 if self.display:
                     frame = cv2.cvtColor(fgMask, cv2.COLOR_GRAY2BGR)
                     centroid_frame = cv2.circle(frame, (cx, cy), radius=5, color=(0, 0, 255), thickness=-1)
