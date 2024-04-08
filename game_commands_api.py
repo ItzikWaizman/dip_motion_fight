@@ -62,33 +62,43 @@ class CommandAPI:
     def handle_motion(self, command):
         if command in ["still", "left", "right"]:
             if command != self.motion_state and self.motion_state != "still":
-                print(f"release {self.motion_state}")  # input.keyUp(self.motion_state)
+                input.keyUp(self.motion_state)
+                print(f"release {self.motion_state}")
             if command == "still":
                 self.motion_state = "still"
             else:
                 self.motion_state = command
-                print(f"press {self.motion_state}")  # input.keyDown(self.motion_state)
+                input.keyDown(self.motion_state)
+                print(f"press {self.motion_state}")
         else:
             if command != self.body_state and self.body_state != "upright":
-                print(f"release down")  # input.keyUp("down")
+                input.keyUp("down")
+                print(f"release down")
             if command == "upright":
                 self.body_state = "upright"
             else:
                 self.body_state = "crouch"
-                print(f"press down")  # input.keyDown("down")
+                input.keyDown("down")
+                print(f"press down")
 
     def execute_instant_action(self, command):
         # Execute press actions with a delay
         if command in ["punch", "kick"]:
             action = random.choice(self.instant_actions_map[command])
+            input.press(action)
         else:
             action = self.instant_actions_map[command]
-        print(f"perform {command}")  # input.press(action)
+            input.keyDown("up")
+            time.sleep(0.2)
+            input.keyUp("up")
+        print(f"perform {command}")
 
     def stop(self):
         # Signal to stop the worker thread and ensure all keys are released
         self.running = False
         if self.motion_state != "still":
-            print(f"release {self.motion_state}")  # input.keyUp(self.motion_state)
+            input.keyUp(self.motion_state)
+            print(f"release {self.motion_state}")
         if self.body_state != "upright":
-            print("release down")  # input.keyUp("down")
+            input.keyUp("down")
+            print("release down")

@@ -37,11 +37,13 @@ class FrameReader:
 
         # Initialize previous frame
         ret, frame = self.capture.read()
-        if self.params['resize'] != 1.0:
-            frame = cv2.resize(frame, (0, 0), fx=self.params['resize'], fy=self.params['resize'])
         if not ret:
             self.capture.release()
             print("Error capturing frames...")
+
+        if self.params['resize'] != 1.0:
+            frame = cv2.resize(frame, (0, 0), fx=self.params['resize'], fy=self.params['resize'])
+            
         self.prev_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         start_time = time.time()

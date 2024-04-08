@@ -5,13 +5,12 @@ from movement_analyzer import MovementAnalyzer
 
 
 def main():
-
     # Configurations dictionary
     params = Parameters().params
 
     # Create FramerReader
     frame_reader = FrameReader(params)
-
+    
     # Create Game Command API
     command_api = CommandAPI(params)
 
