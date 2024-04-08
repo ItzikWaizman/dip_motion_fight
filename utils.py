@@ -58,7 +58,7 @@ def overlay(image, mask, color, alpha, resize=None):
     return image_combined
 
 
-def compute_roi(img_shape, centroid, bbox_shape, params):
+def compute_roi(img_shape, centroid, bbox_shape, params, plot=True, target=None):
 
     """
     Computes and plots the bounding box corners for the regions of interest in the binary mask.
@@ -67,8 +67,13 @@ def compute_roi(img_shape, centroid, bbox_shape, params):
     :param centroid: tuple (cx, cy) of the centroid coordinates
     :param bbox_shape: tuple (width,height) of the body box dimensions
     :param params: Parameters() object containing the orientation and action box dimensions
-    :return: body, kick and punch bounding box corners in dict format
+    :param plot: whether to plot the boxes on top of the frame
+    :param target: target RGB image to plot on
+    :return: body, kick and punch bounding box corners
     """
+
+    if plot:
+        assert target is not None
 
     y_dim, x_dim = img_shape[0:2]
     width, height = bbox_shape
@@ -78,6 +83,12 @@ def compute_roi(img_shape, centroid, bbox_shape, params):
     body_box_corner = (max(cx - width // 2, 0), max(cy - height // 2, 0))
     bbox_width = min(width, x_dim - 1 - body_box_corner[0])
     bbox_height = min(height, y_dim - 1 - body_box_corner[1])
+
+    if plot:
+        cv2.rectangle(target, pt1=body_box_corner[:2],
+                      pt2=(body_box_corner[0] + bbox_width, body_box_corner[1] + bbox_height),
+                      color=(0, 255, 0),
+                      shift=0)
 
     act_box_width = int(params['act_box_width'] * x_dim)
     act_box_height = int(bbox_height // 3)
@@ -98,15 +109,26 @@ def compute_roi(img_shape, centroid, bbox_shape, params):
                  punch_box_corner[0] + act_box_width, punch_box_corner[1] + act_box_height)
     kick_box = (kick_box_corner[0], kick_box_corner[1],
                 kick_box_corner[0] + act_box_width, kick_box_corner[1] + act_box_height)
-    
-    bounding_boxes = {"body":body_box, "punch":punch_box, "kick":kick_box}
 
-    return bounding_boxes
+    # Adjust kick box based on player being bent down or not
+    if plot:
+        cv2.rectangle(target, pt1=punch_box[:2],
+                      pt2=(punch_box[0] + act_box_width, punch_box[1] + act_box_height),
+                      color=(0, 255, 0),
+                      shift=0)
+
+        cv2.rectangle(target, pt1=kick_box[:2],
+                      pt2=(kick_box[0] + act_box_width, kick_box[1] + act_box_height),
+                      color=(0, 255, 0),
+                      shift=0)
+
+    return body_box, punch_box, kick_box
+
 
 def optical_flow_visualization(opt_flow):
 
     """
-    Converts optical flow to RGB visualization image.u
+    Converts optical flow to RGB visualization image.
 
     :param opt_flow: input optical flow
     :return: RGB frame of optical flow visualization

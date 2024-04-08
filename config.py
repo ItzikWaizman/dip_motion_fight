@@ -38,4 +38,4 @@ class Parameters(object):
 
         # Displays
         self.params['display_preprocess'] = True
-        self.params['display_movement'] = True
+        self.params['display_centroid'] = True
