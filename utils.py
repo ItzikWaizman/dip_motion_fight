@@ -95,14 +95,12 @@ def compute_roi(img_shape, centroid, bbox_shape, params, plot=True, target=None)
     spacing = int(params['spacing'] * x_dim)
 
     if params['orientation'] == "right":
-        punch_box_corner = (min(body_box_corner[0] + bbox_width + spacing, x_dim - 1), body_box_corner[1])
-        kick_box_corner = (min(body_box_corner[0] + bbox_width + spacing, x_dim - 1),
-                           body_box_corner[1] + 2 * act_box_height)
-        act_box_width = min(act_box_width, x_dim - 1 - body_box_corner[0])
+        punch_box_corner = (min(cx + spacing, x_dim - 1), body_box_corner[1])
+        kick_box_corner = (min(cx + spacing, x_dim - 1), body_box_corner[1] + 2 * act_box_height)
+        act_box_width = min(act_box_width, x_dim - 1 - punch_box_corner[0])
     else:
-        punch_box_corner = (max(body_box_corner[0] - act_box_width - spacing, 0), body_box_corner[1])
-        kick_box_corner = (max(body_box_corner[0] - act_box_width - spacing, 0),
-                           body_box_corner[1] + 2 * act_box_height)
+        punch_box_corner = (max(cx - act_box_width - spacing, 0), body_box_corner[1])
+        kick_box_corner = (max(cx - act_box_width - spacing, 0), body_box_corner[1] + 2 * act_box_height)
         act_box_width = min(act_box_width, punch_box_corner[0])
 
     body_box = (body_box_corner[0], body_box_corner[1],

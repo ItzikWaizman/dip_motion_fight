@@ -14,12 +14,12 @@ class FrameReader:
     """
 
     def __init__(self, params):
-        self.mask_buffer = queue.Queue(maxsize=params['frame_buffer_size'])
-        self.optflow_buffer = queue.Queue(maxsize=params['frame_buffer_size'])
-        self.capture = cv2.VideoCapture(0)  # Assuming default camera
+        self.params = params
+        self.mask_buffer = queue.Queue(maxsize=self.params['frame_buffer_size'])
+        self.opt_flow_buffer = queue.Queue(maxsize=self.params['frame_buffer_size'])
+        self.capture = cv2.VideoCapture(self.params['capture_device'])
         self.background = None
         self.prev_gray = None
-        self.params = params
         self.fps = 0
         self.backSub = cv2.createBackgroundSubtractorKNN(history=self.params['history'],
                                                          dist2Threshold=self.params['dist2thresh'],
@@ -36,11 +36,13 @@ class FrameReader:
         i = 0
 
         # Initialize previous frame
-        ret, self.prev_gray = self.capture.read()
+        ret, frame = self.capture.read()
+        if self.params['resize'] != 1.0:
+            frame = cv2.resize(frame, (0, 0), fx=self.params['resize'], fy=self.params['resize'])
         if not ret:
             self.capture.release()
             print("Error capturing frames...")
-        self.prev_gray = cv2.cvtColor(self.prev_gray, cv2.COLOR_BGR2GRAY)
+        self.prev_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         start_time = time.time()
 
@@ -49,10 +51,14 @@ class FrameReader:
             if not ret:
                 break
 
+            # Resize if needed
+            if self.params['resize'] != 1.0:
+                frame = cv2.resize(frame, (0, 0), fx=self.params['resize'], fy=self.params['resize'])
+
             # Compute fgMask
             fgMask = self.segment_player(frame)
 
-            # Equeue foreground mask
+            # Enqueue foreground mask
             if self.mask_buffer.full():
                 self.mask_buffer.get()
             self.mask_buffer.put(fgMask)
@@ -64,9 +70,9 @@ class FrameReader:
                                                         winsize=15, iterations=5, poly_n=5, poly_sigma=1.1, flags=0)
                 self.prev_gray = gray
 
-                if self.optflow_buffer.full():
-                    self.optflow_buffer.get()
-                self.optflow_buffer.put(opt_flow)
+                if self.opt_flow_buffer.full():
+                    self.opt_flow_buffer.get()
+                self.opt_flow_buffer.put(opt_flow)
 
             # Display segmentation and background
             if self.display:
@@ -127,6 +133,6 @@ class FrameReader:
         return None
 
     def get_flow(self):
-        if not self.optflow_buffer.empty():
-            return self.optflow_buffer.get()
+        if not self.opt_flow_buffer.empty():
+            return self.opt_flow_buffer.get()
         return None

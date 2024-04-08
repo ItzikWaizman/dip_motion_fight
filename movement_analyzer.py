@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import utils
 import time
+import matplotlib.pyplot as plt
 
 
 class MovementAnalyzer:
@@ -23,8 +24,6 @@ class MovementAnalyzer:
         self._init_kalman_filter()
         self.width = 0
         self.height = 0
-        self.motion_state = "still"
-        self.body_state = "upright"
 
     def _init_kalman_filter(self):
         self.kalman = cv2.KalmanFilter(4, 2)
@@ -77,6 +76,12 @@ class MovementAnalyzer:
         Analyze press movements such as punch, kick, crouch or jump.
         """
 
+        time.sleep(10)
+        mid_punch = False
+        mid_kick = False
+        mid_jump = False
+        jump_time = time.time()
+
         while self.running:
             flow = self.frame_reader.get_flow()
             if flow is not None:
@@ -90,7 +95,43 @@ class MovementAnalyzer:
                                                                   params=self.params,
                                                                   plot=False)
 
-                # TODO: Use the optical flow in the regions of interest to detect punches/kicks.
+                # Use optical flow to identify punch
+                punch_box_flow = flow[punch_box[1]:punch_box[3]+1, punch_box[0]:punch_box[2]+1]
+                mag, ang = cv2.cartToPolar(punch_box_flow[..., 0], punch_box_flow[..., 1])
+                non_zero = mag > 1
+                if np.sum(non_zero) > 0.05 * mag.size:
+                    if np.mean(mag[non_zero]) > 15:
+                        if not mid_punch:
+                            mid_punch = True
+                            self.command_api.add_work_request("punch")
+                    if np.mean(mag) < 0.1:
+                        mid_punch = False
+                else:
+                    mid_punch = False
+
+                # Use optical flow to identify kick
+                kick_box_flow = flow[kick_box[1]:kick_box[3]+1, kick_box[0]:kick_box[2]+1]
+                mag, ang = cv2.cartToPolar(kick_box_flow[..., 0], kick_box_flow[..., 1])
+                non_zero = mag > 1
+                if np.sum(non_zero) > 0.05 * mag.size:
+                    if np.mean(mag[non_zero]) > 15:
+                        if not mid_kick:
+                            mid_kick = True
+                            self.command_api.add_work_request("kick")
+                    if np.mean(mag) < 0.1:
+                        mid_kick = False
+                else:
+                    mid_punch = False
+
+                # Use optical flow to identify jump
+                body_box_flow = flow[body_box[1]:body_box[3]+1, body_box[0]:body_box[2]+1]
+                if np.mean(body_box_flow[..., 1]) < -5:
+                    if not mid_jump:
+                        mid_jump = True
+                        self.command_api.add_work_request("jump")
+                        jump_time = time.time()
+                elif time.time() - jump_time > 1:
+                    mid_jump = False
 
                 if self.display:
                     visual = utils.optical_flow_visualization(flow)
@@ -101,8 +142,6 @@ class MovementAnalyzer:
 
             else:
                 time.sleep(0.03)
-
-        print("Gesture-Analyzer Terminated...")
 
     def track_motion(self):
 
@@ -117,6 +156,9 @@ class MovementAnalyzer:
         This can be implemented using Kalman filter or center of mass tracking.        
         """
 
+        motion_state = "still"
+        body_state = "upright"
+
         while self.running:
             fgMask = self.frame_reader.get_mask()
             if fgMask is not None:
@@ -127,28 +169,28 @@ class MovementAnalyzer:
                 # Analyze motion
                 if abs(vx) > self.params['motion_thresh']:
                     if vx > self.params['motion_thresh']:
-                        if self.motion_state != "left":
+                        if motion_state != "left":
                             self.command_api.add_work_request("left")
-                            self.motion_state = "left"
+                            motion_state = "left"
                     else:
-                        if self.motion_state != "right":
+                        if motion_state != "right":
                             self.command_api.add_work_request("right")
-                            self.motion_state = "right"
+                            motion_state = "right"
                 else:
-                    if self.motion_state != "still":
+                    if motion_state != "still":
                         self.command_api.add_work_request("still")
-                        self.motion_state = "still"
+                        motion_state = "still"
 
                 # Analyze body position
                 if cy > self.params['crouch_thresh'] * fgMask.shape[0]:
-                    if self.body_state != "crouch":
+                    if body_state != "crouch":
                         self.command_api.add_work_request("crouch")
-                        self.body_state = "crouch"
+                        body_state = "crouch"
 
                 else:
-                    if self.body_state != "upright":
+                    if body_state != "upright":
                         self.command_api.add_work_request("upright")
-                        self.body_state = "upright"
+                        body_state = "upright"
 
                 # Display
                 if self.display:
