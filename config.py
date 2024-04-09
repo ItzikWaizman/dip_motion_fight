@@ -8,9 +8,9 @@ class Parameters(object):
 
         # Optical flow parameters
         self.params['resize'] = True
-        self.params['resize_factor'] = 0.5
-        self.params['mag_thresh'] = 2
-        self.params['mv_thresh'] = 0.14
+        self.params['resize_factor'] = 1.0
+        self.params['mag_thresh'] = 30
+        self.params['mv_thresh'] = 0.1
 
         # bbox parameters
         self.params['bbox_height'] = 0.8

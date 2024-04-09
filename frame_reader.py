@@ -6,7 +6,6 @@ import utils
 import time
 
 
-# noinspection PyTypeChecker
 class FrameReader:
 
     """
@@ -45,20 +44,14 @@ class FrameReader:
                 frame = cv2.resize(frame, (0, 0),
                                    fx=self.params['resize_factor'], fy=self.params['resize_factor'])
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            if np.max(gray - self.prev_gray) == 0:
+            if np.abs(np.max(gray - self.prev_gray)) == 0:
                 continue
 
             # Compute optical flow
-            hsv_visual = np.zeros_like(frame)
-            hsv_visual[..., 1] = 255
-            opt_flow = cv2.calcOpticalFlowFarneback(self.prev_gray, gray, flow=None, pyr_scale=0.3, levels=3,
-                                                    winsize=15, iterations=5, poly_n=5, poly_sigma=1.1, flags=0)
-            mag, ang = cv2.cartToPolar(opt_flow[..., 0], opt_flow[..., 1])
-            mag = np.where(mag > self.params['mag_thresh'], mag, 0)
-
-            hsv_visual[..., 0] = ang * 180 / np.pi / 2
-            hsv_visual[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
-            visual = cv2.cvtColor(hsv_visual, cv2.COLOR_HSV2BGR)
+            mag = np.zeros_like(gray)
+            cv2.absdiff(gray, self.prev_gray, mag)
+            _, visual = cv2.threshold(mag, self.params['mag_thresh'], 255, cv2.THRESH_BINARY)
+            visual = visual.astype(np.uint8)
             self.prev_gray = gray
 
             # compute fgMask
@@ -68,11 +61,6 @@ class FrameReader:
             if self.mask_buffer.full():
                 self.mask_buffer.get()
             self.mask_buffer.put(fgMask)
-
-            # Equeue optical flow
-            if self.optflow_buffer.full():
-                self.optflow_buffer.get()
-            self.optflow_buffer.put(opt_flow)
 
             # Display segmentation and background
             if self.display:
@@ -105,24 +93,23 @@ class FrameReader:
 
         # Erosion and dilation to remove noise and fill gaps
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        fgMask = cv2.morphologyEx(fgMask, cv2.MORPH_CLOSE, kernel, iterations=5)
+        fgMask = cv2.dilate(fgMask, kernel, iterations=2)
 
-        # Filter out noise and smaller components, keeping the largest component
-        contours, _ = cv2.findContours(fgMask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        for _ in range(3):
+            # Filter out noise and smaller components, keeping the largest component
+            contours, _ = cv2.findContours(fgMask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 
-        if contours:
-            largest_contour = max(contours, key=cv2.contourArea)
-            fgMask = np.zeros_like(fgMask)
-            cv2.drawContours(fgMask, [largest_contour], -1, 255, thickness=cv2.FILLED)
+            if contours:
+                largest_contour = max(contours, key=cv2.contourArea)
+                fgMask = np.zeros_like(fgMask)
+
+                cv2.drawContours(fgMask, [largest_contour], -1, 255, thickness=cv2.FILLED)
+
+            fgMask = cv2.dilate(fgMask, kernel, iterations=2)
 
         return fgMask
 
     def get_mask(self):
         if not self.mask_buffer.empty():
             return self.mask_buffer.get()
-        return None
-
-    def get_flow(self):
-        if not self.optflow_buffer.empty():
-            return self.optflow_buffer.get()
         return None
