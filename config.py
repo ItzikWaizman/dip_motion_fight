@@ -10,7 +10,7 @@ class Parameters(object):
         self.params['resize'] = True
         self.params['resize_factor'] = 1.0
         self.params['mag_thresh'] = 30
-        self.params['mv_thresh'] = 0.1
+        self.params['mv_thresh'] = 0.08
 
         # bbox parameters
         self.params['bbox_height'] = 0.8

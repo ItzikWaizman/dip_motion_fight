@@ -30,7 +30,7 @@ class FrameReader:
     def read_frames(self):
         i = 0
         ret, self.prev_gray = self.capture.read()
-        self.prev_gray = cv2.cvtColor(self.prev_gray, cv2.COLOR_BGR2GRAY)
+        # self.prev_gray = cv2.cvtColor(self.prev_gray, cv2.COLOR_BGR2GRAY)
         if self.params['resize']:
             self.prev_gray = cv2.resize(self.prev_gray, (0, 0),
                                         fx=self.params['resize_factor'], fy=self.params['resize_factor'])
@@ -43,16 +43,18 @@ class FrameReader:
             if self.params['resize']:
                 frame = cv2.resize(frame, (0, 0),
                                    fx=self.params['resize_factor'], fy=self.params['resize_factor'])
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            if np.abs(np.max(gray - self.prev_gray)) == 0:
+            # gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            if np.max(np.abs(frame - self.prev_gray)) == 0:
+                print("YAKOV: Same Frame")
                 continue
 
             # Compute optical flow
-            mag = np.zeros_like(gray)
-            cv2.absdiff(gray, self.prev_gray, mag)
+            mag = np.zeros_like(frame)
+            cv2.absdiff(frame, self.prev_gray, mag)
+            mag = np.mean(mag, axis=2)
             _, visual = cv2.threshold(mag, self.params['mag_thresh'], 255, cv2.THRESH_BINARY)
             visual = visual.astype(np.uint8)
-            self.prev_gray = gray
+            self.prev_gray = frame
 
             # compute fgMask
             fgMask = self.segment_player(mag)
@@ -92,20 +94,27 @@ class FrameReader:
         fgMask = fgMask.astype(np.uint8)
 
         # Erosion and dilation to remove noise and fill gaps
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 4))
         fgMask = cv2.dilate(fgMask, kernel, iterations=2)
+        # fgMask = cv2.morphologyEx(fgMask, cv2.MORPH_CLOSE, kernel)
 
-        for _ in range(3):
+        for _ in range(5):
             # Filter out noise and smaller components, keeping the largest component
             contours, _ = cv2.findContours(fgMask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+            contours = sorted(contours, key=cv2.contourArea, reverse=True)
+            for contour in contours:
+                print(f"{cv2.contourArea(contour)}")
+            print("Done")
 
             if contours:
                 largest_contour = max(contours, key=cv2.contourArea)
                 fgMask = np.zeros_like(fgMask)
 
-                cv2.drawContours(fgMask, [largest_contour], -1, 255, thickness=cv2.FILLED)
-
-            fgMask = cv2.dilate(fgMask, kernel, iterations=2)
+                # noinspection PyTypeChecker
+                cv2.drawContours(fgMask, [contour for contour in contours if cv2.contourArea(contour) > 1000], -1, 255,
+                                 thickness=cv2.FILLED)
+                fgMask = cv2.morphologyEx(fgMask, cv2.MORPH_CLOSE, np.ones((50, 50), np.uint8))
+                fgMask = cv2.dilate(fgMask, kernel, iterations=2)
 
         return fgMask
 
