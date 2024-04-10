@@ -115,7 +115,7 @@ class MovementAnalyzer:
             non_zero = mag > 1
 
             if np.sum(non_zero) > 0.05 * mag.size:
-                if np.mean(mag[non_zero]) > 5:
+                if np.mean(mag[non_zero]) > 20:
                     if not self.mid_kick:
                         self.mid_kick = True
                         self.command_api.add_work_request("kick")
@@ -125,8 +125,10 @@ class MovementAnalyzer:
                 self.mid_kick = False
 
             # Use optical flow to identify jump
-            body_box_flow = flow[body_box[1]:body_box[3]+1, body_box[0]:body_box[2]+1]
+            body_box_height = body_box[3] - body_box[1]
+            body_box_flow = flow[body_box[1]:body_box[1] +int(0.3*body_box_height) + 1, body_box[0]:body_box[2]+1]
 
+            print(f"YAKOV: np.mean(biioukuidy_box_flow[..., 1]): {np.mean(body_box_flow[..., 1])}")
             if np.mean(body_box_flow[..., 1]) < -3:
                 if not self.mid_jump:
                     self.mid_jump = True

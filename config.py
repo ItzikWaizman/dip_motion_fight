@@ -6,7 +6,7 @@ class Parameters(object):
         # Frame reader parameters
         self.params['capture_device'] = 1 # External Camera
         self.params['frame_buffer_size'] = 10
-        self.params['resize'] = 0.5 # Resize factor
+        self.params['resize'] = 1 # Resize factor
 
         # Background subtraction parameters
         self.params['colorspace'] = "RGB"
@@ -28,7 +28,7 @@ class Parameters(object):
         self.params['obs_noise_var'] = [5, 5]
         # Mask size threshold for movement tracking (% of image)
         self.params['mask_upper_thresh'] = 0.3
-        self.params['mask_lower_thresh'] = 0.1
+        self.params['mask_lower_thresh'] = 0.08
 
         # Command API parameters
         self.params['game_commands_delay_time'] = 0.3
