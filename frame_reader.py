@@ -15,17 +15,15 @@ class FrameReader:
 
     def __init__(self, params):
         self.params = params
-        self.mask_buffer = queue.Queue(maxsize=self.params['frame_buffer_size'])
-        self.opt_flow_buffer = queue.Queue(maxsize=self.params['frame_buffer_size'])
+        self.frame_analysis_buffer = queue.Queue(maxsize=self.params['frame_buffer_size'])
         self.capture = cv2.VideoCapture(self.params['capture_device'])
-        self.background = None
         self.prev_gray = None
         self.fps = 0
-        self.backSub = cv2.createBackgroundSubtractorKNN(history=self.params['history'],
-                                                         dist2Threshold=self.params['dist2thresh'],
-                                                         detectShadows=False)
-        self.backSub.setkNNSamples(self.params['kNN_Samples'])
         self.display = self.params['display_preprocess']
+        if self.params['method'] == 'Haar':
+            self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml')
+        else:
+            self.face_cascade = None
 
     def start_capture(self):
         th = Thread(target=self.read_frames, daemon=True)
@@ -43,7 +41,7 @@ class FrameReader:
 
         if self.params['resize'] != 1.0:
             frame = cv2.resize(frame, (0, 0), fx=self.params['resize'], fy=self.params['resize'])
-            
+
         self.prev_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         start_time = time.time()
@@ -53,45 +51,49 @@ class FrameReader:
             if not ret:
                 break
 
+            if self.params['orientation'] == "right":
+                frame = cv2.flip(frame, 1)
+
             # Resize if needed
             if self.params['resize'] != 1.0:
                 frame = cv2.resize(frame, (0, 0), fx=self.params['resize'], fy=self.params['resize'])
 
-            # Compute fgMask
-            fgMask = self.segment_player(frame)
-
-            # Enqueue foreground mask
-            if self.mask_buffer.full():
-                self.mask_buffer.get()
-            self.mask_buffer.put(fgMask)
-
             # Compute optical flow
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            if np.max(gray - self.prev_gray) != 0:
-                opt_flow = cv2.calcOpticalFlowFarneback(self.prev_gray, gray, flow=None, pyr_scale=0.3, levels=3,
+            if np.max(cv2.absdiff(self.prev_gray, gray)) != 0:
+                opt_flow = cv2.calcOpticalFlowFarneback(self.prev_gray, gray, flow=None, pyr_scale=0.5, levels=3,
                                                         winsize=15, iterations=5, poly_n=5, poly_sigma=1.1, flags=0)
-                self.prev_gray = gray
+            else:
+                opt_flow = None
 
-                if self.opt_flow_buffer.full():
-                    self.opt_flow_buffer.get()
-                self.opt_flow_buffer.put(opt_flow)
+            # Locate player's head
+            head_circle = self.locate_head(gray)
+
+            # Save gray frame
+            self.prev_gray = gray
+
+            # Enqueue frame analysis
+            if self.frame_analysis_buffer.full():
+                self.frame_analysis_buffer.get()
+            self.frame_analysis_buffer.put((frame, opt_flow, head_circle))
 
             # Display segmentation and background
             if self.display:
-                self.background = self.backSub.getBackgroundImage()
-                if self.params['colorspace'] == "HSV":
-                    self.background = cv2.cvtColor(self.background, cv2.COLOR_HSV2BGR)
+                if opt_flow is not None:
+                    visual_optical_flow = utils.optical_flow_visualization(opt_flow)
+                else:
+                    visual_optical_flow = np.zeros_like(frame)
 
-                segmented_frame = utils.overlay(image=frame, mask=fgMask, color=(255, 0, 0), alpha=0.7)
-                segmented_frame = cv2.putText(img=segmented_frame, text=f"fps: {self.fps}", org=(15, 30),
-                                              fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1,
-                                              color=(0, 0, 0), thickness=2, lineType=cv2.LINE_AA)
-                cv2.imshow("Player Segmentation", segmented_frame)
-                cv2.imshow("Background Model", self.background)
+                # Add fps display
+                cv2.putText(img=visual_optical_flow, text=f"fps: {self.fps}", org=(15, 30),
+                            fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1,
+                            color=(255, 0, 0), thickness=2, lineType=cv2.LINE_AA)
 
-            # Break loop with 'q' key
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+                cv2.imshow("Optical Flow", visual_optical_flow)
+
+                # Break loop with 'q' key
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
 
             # Update fps
             if i % 10 == 0:
@@ -103,38 +105,20 @@ class FrameReader:
         self.capture.release()
         print("Frame Reader Terminated...")
 
-    def segment_player(self, frame):
+    def locate_head(self, frame):
 
-        if self.params['colorspace'] == "HSV":
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        # Subtract the background
-        fgMask = self.backSub.apply(frame)
+        faces = self.face_cascade.detectMultiScale(frame,
+                                                   scaleFactor=self.params['Haar_scale'],
+                                                   minNeighbors=self.params['Haar_neighbors'],
+                                                   minSize=self.params['Haar_min_face_size'])
+        if len(faces) > 0:
+            x, y, h, w = faces[0]
+            head_circle = (int(x + h / 2), int(y + w / 2), int(h / 2))
+            return head_circle
+        else:
+            return None
 
-        # Erosion and dilation to remove noise and fill gaps
-        erode_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        dilate_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 7))
-        cv2.erode(fgMask, erode_kernel, fgMask, iterations=2)
-        cv2.dilate(fgMask, dilate_kernel, fgMask, iterations=2)
-
-        # Filter out noise and smaller components, keeping the largest component
-        contours, _ = cv2.findContours(fgMask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-
-        if contours:
-            largest_contour = max(contours, key=cv2.contourArea)
-            fgMask = np.zeros_like(fgMask)
-            cv2.drawContours(fgMask, [largest_contour], -1, 255, thickness=cv2.FILLED)
-
-        cv2.erode(fgMask, erode_kernel, fgMask, iterations=2)
-        cv2.dilate(fgMask, dilate_kernel, fgMask, iterations=2)
-
-        return fgMask
-
-    def get_mask(self):
-        if not self.mask_buffer.empty():
-            return self.mask_buffer.get()
-        return None
-
-    def get_flow(self):
-        if not self.opt_flow_buffer.empty():
-            return self.opt_flow_buffer.get()
+    def get_frame_analysis(self):
+        if not self.frame_analysis_buffer.empty():
+            return self.frame_analysis_buffer.get()
         return None

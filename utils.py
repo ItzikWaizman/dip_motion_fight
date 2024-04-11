@@ -2,62 +2,6 @@ import cv2
 import numpy as np
 
 
-def get_centroid(frame):
-
-    """
-    Finds the centroid of a binary frame.
-
-    :param frame: target frame
-    :return: Centroid of a binary frame
-    """
-
-    M = cv2.moments(frame)
-    # calculate x,y coordinate of center
-    if M["m00"] != 0:
-        cX = int(M["m10"] / M["m00"])
-        cY = int(M["m01"] / M["m00"])
-    else:
-        cX = frame.shape[1] // 2
-        cY = frame.shape[0] // 2
-
-    # Estimate bounding box dimensions
-    covariance_matrix = np.array([[M['mu20'], M['mu11']],
-                                  [M['mu11'], M['mu02']]]) / M["m00"]
-    eigenvalues, eigenvectors = np.linalg.eig(covariance_matrix)
-    width = int(2 * np.sqrt(5.991 * eigenvalues[0]))  # 5.991 is the chi-square value for 95% confidence level
-    height = int(2 * np.sqrt(5.991 * eigenvalues[1]))
-
-    return cX, cY, width, height
-
-
-def overlay(image, mask, color, alpha, resize=None):
-
-    """
-    Overlays a segmentation mask on an image.
-
-    :param image: target RGB image
-    :param mask: binary segmentation mask
-    :param color: overlay color
-    :param alpha: overlay color alpha value (opaqueness) in the range [0,1]
-    :param resize: factor to resize the resulting image
-    :return: RGB image with the segmentation mask overlay on the image
-    """
-
-    color = color[::-1]
-    colored_mask = np.expand_dims(mask, 0).repeat(3, axis=0)
-    colored_mask = np.moveaxis(colored_mask, 0, -1)
-    masked = np.ma.MaskedArray(image, mask=colored_mask, fill_value=color)
-    image_overlay = masked.filled()
-
-    if resize is not None:
-        image = cv2.resize(image.transpose(1, 2, 0), resize)
-        image_overlay = cv2.resize(image_overlay.transpose((1, 2, 0)), resize)
-
-    image_combined = cv2.addWeighted(image, 1 - alpha, image_overlay, alpha, 0)
-
-    return image_combined
-
-
 def compute_roi(img_shape, centroid, bbox_shape, params, plot=True, target=None):
 
     """
@@ -80,7 +24,7 @@ def compute_roi(img_shape, centroid, bbox_shape, params, plot=True, target=None)
     cx, cy = centroid
 
     # Body box
-    body_box_corner = (max(cx - width // 2, 0), max(cy - height // 2, 0))
+    body_box_corner = (max(cx - width // 2, 0), cy)
     bbox_width = min(width, x_dim - 1 - body_box_corner[0])
     bbox_height = min(height, y_dim - 1 - body_box_corner[1])
 
@@ -94,14 +38,9 @@ def compute_roi(img_shape, centroid, bbox_shape, params, plot=True, target=None)
     act_box_height = int(bbox_height // 3)
     spacing = int(params['spacing'] * x_dim)
 
-    if params['orientation'] == "right":
-        punch_box_corner = (min(cx + spacing, x_dim - 1), body_box_corner[1])
-        kick_box_corner = (min(cx + spacing, x_dim - 1), body_box_corner[1] + 2 * act_box_height)
-        act_box_width = min(act_box_width, x_dim - 1 - punch_box_corner[0])
-    else:
-        punch_box_corner = (max(cx - act_box_width - spacing, 0), body_box_corner[1])
-        kick_box_corner = (max(cx - act_box_width - spacing, 0), body_box_corner[1] + 2 * act_box_height)
-        act_box_width = min(act_box_width, punch_box_corner[0])
+    punch_box_corner = (max(cx - act_box_width - spacing, 0), body_box_corner[1])
+    kick_box_corner = (max(cx - act_box_width - spacing, 0), body_box_corner[1] + 2 * act_box_height)
+    act_box_width = min(act_box_width, cx - spacing)
 
     body_box = (body_box_corner[0], body_box_corner[1],
                 body_box_corner[0] + bbox_width, body_box_corner[1] + bbox_height)
@@ -142,3 +81,18 @@ def optical_flow_visualization(opt_flow):
     hsv_visual[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
     visual = cv2.cvtColor(hsv_visual, cv2.COLOR_HSV2BGR)
     return visual
+
+
+def dist(x1, y1, x2, y2):
+
+    """
+    Computes the distance between two points on a plane.
+
+    :param x1: x coordinate of the first point
+    :param y1: y coordinate of the first point
+    :param x2: x coordinate of the second point
+    :param y2: y coordinate of the second point
+
+    :return: Euclidean distance between (x1, y1) and (x2, y2)
+    """
+    return np.linalg.norm([x2 - x1, y2 - y1])

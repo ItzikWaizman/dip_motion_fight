@@ -87,7 +87,6 @@ class CommandAPI:
             action = random.choice(self.instant_actions_map[command])
             input.press(action)
         else:
-            action = self.instant_actions_map[command]
             input.keyDown("up")
             time.sleep(0.2)
             input.keyUp("up")
