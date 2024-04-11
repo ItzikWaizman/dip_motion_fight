@@ -14,10 +14,9 @@ class FrameReader:
     """
 
     def __init__(self, params):
-        self.mask_buffer = queue.Queue(maxsize=params['frame_buffer_size'])
         self.optflow_buffer = queue.Queue(maxsize=params['frame_buffer_size'])
-        self.capture = cv2.VideoCapture(0)  # Assuming default camera
-        self.prev_gray = None
+        self.capture = cv2.VideoCapture(0)
+        self.prev_frame = None
         self.fps = 0
         self.display = params['display_preprocess']
         self.params = params
@@ -27,13 +26,13 @@ class FrameReader:
         th.start()
         return th
 
+    # noinspection PyTypeChecker
     def read_frames(self):
         i = 0
-        ret, self.prev_gray = self.capture.read()
-        # self.prev_gray = cv2.cvtColor(self.prev_gray, cv2.COLOR_BGR2GRAY)
+        ret, self.prev_frame = self.capture.read()
         if self.params['resize']:
-            self.prev_gray = cv2.resize(self.prev_gray, (0, 0),
-                                        fx=self.params['resize_factor'], fy=self.params['resize_factor'])
+            self.prev_frame = cv2.resize(self.prev_frame, (0, 0),
+                                         fx=self.params['resize_factor'], fy=self.params['resize_factor'])
         start_time = time.time()
         while True:
             ret, frame = self.capture.read()
@@ -43,40 +42,51 @@ class FrameReader:
             if self.params['resize']:
                 frame = cv2.resize(frame, (0, 0),
                                    fx=self.params['resize_factor'], fy=self.params['resize_factor'])
-            # gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            if np.max(np.abs(frame - self.prev_gray)) == 0:
-                print("YAKOV: Same Frame")
+
+            # Throw out identical frames
+            if np.max(np.abs(frame - self.prev_frame)) == 0:
                 continue
 
+            # Compute difference frame
+            diff = np.zeros_like(frame)
+            cv2.absdiff(frame, self.prev_frame, diff)
+            diff = np.mean(diff, axis=2)
+            diff_mask = cv2.threshold(diff, self.params['mag_thresh'], 255, cv2.THRESH_BINARY)[1].astype(np.uint8)
+            diff_mask = cv2.medianBlur(diff_mask, 3)
+            diff_edges = cv2.Canny(diff_mask, threshold1=50, threshold2=150, apertureSize=3)
+            frame_copy, circles = self.detect_circles(np.copy(frame), diff_edges)
+
             # Compute optical flow
-            mag = np.zeros_like(frame)
-            cv2.absdiff(frame, self.prev_gray, mag)
-            mag = np.mean(mag, axis=2)
-            _, visual = cv2.threshold(mag, self.params['mag_thresh'], 255, cv2.THRESH_BINARY)
-            visual = visual.astype(np.uint8)
-            self.prev_gray = frame
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            prev_gray = cv2.cvtColor(self.prev_frame, cv2.COLOR_BGR2GRAY)
+            opt_flow = cv2.calcOpticalFlowFarneback(prev_gray, gray, flow=None, pyr_scale=0.3, levels=3,
+                                                    winsize=15, iterations=5, poly_n=5, poly_sigma=1.1, flags=0)
 
-            # compute fgMask
-            fgMask = self.segment_player(mag)
+            self.prev_frame = frame
 
-            # Equeue foreground mask
-            if self.mask_buffer.full():
-                self.mask_buffer.get()
-            self.mask_buffer.put(fgMask)
+            # Equeue optical flow
+            if self.optflow_buffer.full():
+                self.optflow_buffer.get()
+            self.optflow_buffer.put(opt_flow)
 
             # Display segmentation and background
             if self.display:
+                cv2.imshow("Edges of difference frame", diff_edges)
+                cv2.imshow("Circles Found", frame_copy)
 
-                segmented_frame = utils.overlay(image=frame, mask=fgMask, color=(255, 0, 0), alpha=0.7)
-                segmented_frame = cv2.putText(img=segmented_frame, text=f"fps: {self.fps}", org=(15, 30),
-                                              fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1,
-                                              color=(255, 0, 0), thickness=2, lineType=cv2.LINE_AA)
-                cv2.imshow("Player Segmentation", segmented_frame)
-                cv2.imshow("Optical Flow", visual)
+                # Visualize optical flow
+                hsv_visual = np.zeros((opt_flow.shape[0], opt_flow.shape[1], 3), dtype=np.uint8)
+                hsv_visual[..., 1] = 255
+                mag, ang = cv2.cartToPolar(opt_flow[..., 0], opt_flow[..., 1])
+                mag = np.where(mag > 2, mag, 0)
+                hsv_visual[..., 0] = ang * 180 / np.pi / 2
+                hsv_visual[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
+                visual_optflow = cv2.cvtColor(hsv_visual, cv2.COLOR_HSV2BGR)
+                cv2.imshow("Optical Flow", visual_optflow)
 
-            # Break loop with 'q' key
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+                # Break loop with 'q' key
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
 
             # Update fps
             if i % 10 == 0:
@@ -88,37 +98,34 @@ class FrameReader:
         self.capture.release()
         print("Frame Reader Terminated...")
 
-    def segment_player(self, frame):
+    @staticmethod
+    def detect_circles(frame, mask):
 
-        _, fgMask = cv2.threshold(frame, self.params['mag_thresh'], 255, cv2.THRESH_BINARY)
-        fgMask = fgMask.astype(np.uint8)
+        # Detect circles using HoughCircles
+        circles = cv2.HoughCircles(mask, cv2.HOUGH_GRADIENT, dp=2, minDist=100, param1=50, param2=50,
+                                   minRadius=20, maxRadius=60)
 
-        # Erosion and dilation to remove noise and fill gaps
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 4))
-        fgMask = cv2.dilate(fgMask, kernel, iterations=2)
-        # fgMask = cv2.morphologyEx(fgMask, cv2.MORPH_CLOSE, kernel)
+        detected_circles = []
+        if circles is not None:
+            circles = np.round(circles[0, :]).astype("int")
+            highest_circle = min(circles, key=lambda circle: circle[1])
 
-        for _ in range(5):
-            # Filter out noise and smaller components, keeping the largest component
-            contours, _ = cv2.findContours(fgMask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-            contours = sorted(contours, key=cv2.contourArea, reverse=True)
-            for contour in contours:
-                print(f"{cv2.contourArea(contour)}")
-            print("Done")
+            (x, y, r) = highest_circle
 
-            if contours:
-                largest_contour = max(contours, key=cv2.contourArea)
-                fgMask = np.zeros_like(fgMask)
+            # Draw the circle
+            cv2.circle(frame, (x, y), r, (0, 255, 0), 4)
+            # Draw the center of the circle
+            cv2.circle(frame, (x, y), 2, (0, 0, 255), 3)
 
-                # noinspection PyTypeChecker
-                cv2.drawContours(fgMask, [contour for contour in contours if cv2.contourArea(contour) > 1000], -1, 255,
-                                 thickness=cv2.FILLED)
-                fgMask = cv2.morphologyEx(fgMask, cv2.MORPH_CLOSE, np.ones((50, 50), np.uint8))
-                fgMask = cv2.dilate(fgMask, kernel, iterations=2)
+        else:
+            highest_circle = None
 
-        return fgMask
+        return frame, highest_circle
+
+    def get_flow(self):
+        if not self.optflow_buffer.empty():
+            return self.optflow_buffer.get()
+        return None
 
     def get_mask(self):
-        if not self.mask_buffer.empty():
-            return self.mask_buffer.get()
         return None
