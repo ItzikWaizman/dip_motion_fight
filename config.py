@@ -6,7 +6,7 @@ class Parameters(object):
         # Frame reader parameters
         self.params['capture_device'] = 0  # External Camera
         self.params['frame_buffer_size'] = 10
-        self.params['resize'] = 1  # Resize factor
+        self.params['resize'] = 0.5  # Resize factor
 
         # Player tracking method (Haar / Circles)
         self.params['method'] = 'Haar'
@@ -24,17 +24,24 @@ class Parameters(object):
         self.params['act_box_width'] = 0.15
         self.params['spacing'] = 0.2  # Space between action box and centroid
 
-        # Kalman Filter Parameters
+        # Instant action parameters
+        self.params['time_between_actions'] = 0.5
+        self.params['time_between_jumps'] = 1
+        self.params['opt_flow_threshold'] = 10
+        self.params['opt_flow_punch_presence'] = 0.2
+        self.params['opt_flow_kick_presence'] = 0.3
+
+        # Kalman Filter & tracking parameters
         self.params['obs_noise_var'] = [25, 25]
         self.params['outlier_thresh'] = 150
         self.params['skip_threshold'] = 10
-
-        # Command API parameters
-        self.params['game_commands_delay_time'] = 0.3
-        self.params['work_request_buffer_max_size'] = 10
-        self.params['motion_thresh'] = 10
+        self.params['motion_thresh'] = 7
         self.params['crouch_thresh'] = 0.5
 
-        # Displays
+        # Command API parameters
+        self.params['game_commands_delay_time'] = 0.03
+        self.params['work_request_buffer_max_size'] = 10
+
+        # Display parameters
         self.params['display_preprocess'] = True
         self.params['display_tracking'] = True

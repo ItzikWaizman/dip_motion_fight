@@ -61,7 +61,7 @@ class FrameReader:
             # Compute optical flow
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             if np.max(cv2.absdiff(self.prev_gray, gray)) != 0:
-                opt_flow = cv2.calcOpticalFlowFarneback(self.prev_gray, gray, flow=None, pyr_scale=0.5, levels=3,
+                opt_flow = cv2.calcOpticalFlowFarneback(self.prev_gray, gray, flow=None, pyr_scale=0.6, levels=3,
                                                         winsize=15, iterations=5, poly_n=5, poly_sigma=1.1, flags=0)
             else:
                 opt_flow = None
@@ -83,6 +83,10 @@ class FrameReader:
                     visual_optical_flow = utils.optical_flow_visualization(opt_flow)
                 else:
                     visual_optical_flow = np.zeros_like(frame)
+
+                # Resize for visualization
+                visual_optical_flow = cv2.resize(visual_optical_flow, (0, 0),
+                                                 fx=1 / self.params['resize'], fy=1 / self.params['resize'])
 
                 # Add fps display
                 cv2.putText(img=visual_optical_flow, text=f"fps: {self.fps}", org=(15, 30),

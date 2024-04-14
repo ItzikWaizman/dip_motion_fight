@@ -1,5 +1,33 @@
 import cv2
 import numpy as np
+import win32gui
+import re
+
+
+class WindowMgr:
+    """Encapsulates calls to the winapi for window management"""
+
+    def __init__(self):
+        """Constructor"""
+        self._handle = None
+
+    def find_window(self, class_name, window_name=None):
+        """find a window by its class_name"""
+        self._handle = win32gui.FindWindow(class_name, window_name)
+
+    def _window_enum_callback(self, hwnd, wildcard):
+        """Pass to win32gui.EnumWindows() to check all the opened windows"""
+        if re.match(wildcard, str(win32gui.GetWindowText(hwnd))) is not None:
+            self._handle = hwnd
+
+    def find_window_wildcard(self, wildcard):
+        """find a window whose title matches the wildcard regex"""
+        self._handle = None
+        win32gui.EnumWindows(self._window_enum_callback, wildcard)
+
+    def set_foreground(self):
+        """put the window in the foreground"""
+        win32gui.SetForegroundWindow(self._handle)
 
 
 def compute_roi(img_shape, centroid, bbox_shape, params, plot=True, target=None):
@@ -49,6 +77,8 @@ def compute_roi(img_shape, centroid, bbox_shape, params, plot=True, target=None)
     kick_box = (kick_box_corner[0], kick_box_corner[1],
                 kick_box_corner[0] + act_box_width, kick_box_corner[1] + act_box_height)
 
+    bounding_boxes = {'body': body_box, 'punch': punch_box, 'kick': kick_box}
+
     # Adjust kick box based on player being bent down or not
     if plot:
         cv2.rectangle(target, pt1=punch_box[:2],
@@ -61,7 +91,7 @@ def compute_roi(img_shape, centroid, bbox_shape, params, plot=True, target=None)
                       color=(0, 255, 0),
                       shift=0)
 
-    return body_box, punch_box, kick_box
+    return bounding_boxes
 
 
 def optical_flow_visualization(opt_flow):

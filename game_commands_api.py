@@ -13,7 +13,7 @@ class CommandAPI:
     Implementation: We maintain a work_request_queue. This queue will be filled by MovementAnalyzer threads for 
     press actions and motion tracking. 
     A dedicated thread will iterate through the requests in the buffer and transfer them to the corresponding handlers.
-    Motion requests are handled with a FSM, including 'Stand', 'Left' and 'Right' states.
+    Motion requests are handled with an FSM, including 'Stand', 'Left' and 'Right' states.
     Press actions are directly executed and can be either punch, kick, jump or crouch.
     TODO: Support Combos.
     """
@@ -46,6 +46,7 @@ class CommandAPI:
     def process_work_requests(self):
         while self.running:
             if not self.work_request_queue.empty():
+                print(self.work_request_queue.queue)
                 command = self.work_request_queue.get()
                 if command in self.motion_state_actions:
                     self.handle_motion(command)
@@ -55,7 +56,7 @@ class CommandAPI:
                     print("Error, unrecognized command...")
 
                 # Wait configurable delay time between consecutive operations.
-                time.sleep(self.delay_time)
+                # time.sleep(self.delay_time)
             else:
                 time.sleep(self.delay_time)
 
@@ -86,11 +87,12 @@ class CommandAPI:
         if command in ["punch", "kick"]:
             action = random.choice(self.instant_actions_map[command])
             input.press(action)
+            print(f"perform {command}")
         else:
             input.keyDown("up")
             time.sleep(0.2)
             input.keyUp("up")
-        print(f"perform {command}")
+            print(f"perform {command}")
 
     def stop(self):
         # Signal to stop the worker thread and ensure all keys are released

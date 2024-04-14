@@ -22,15 +22,9 @@ class MovementAnalyzer:
         self.display = self.params['display_tracking']
         self.running = True
         self._init_kalman_filter()
-        # TODO: Tidy up the class - too many class variables.
-        self.motion_state = "still"
-        self.body_state = "upright"
-        self.mid_punch = False
-        self.mid_kick = False
-        self.mid_jump = False
-        self.jump_time = time.time()
-        self.punch_time = time.time()
-        self.kick_time = time.time()
+        self.state_dict = {'motion': "still", 'body': "upright"}
+        self.mid_action_dict = {'punch': False, 'kick': False, 'jump': False}
+        self.action_times_dict = {'punch': 0.0, 'kick': 0.0, 'jump': 0.0}
 
     def _init_kalman_filter(self):
         self.kalman = cv2.KalmanFilter(4, 2)
@@ -49,7 +43,7 @@ class MovementAnalyzer:
     def track_head(self, x, y):
         if self.tracking:
             cx, cy, _, _ = self.kalman.statePost.flatten().tolist()
-            if utils.dist(x, y, cx, cy) > self.params['outlier_thresh']:
+            if utils.dist(x, y, cx, cy) > self.params['outlier_thresh'] * self.params['resize']:
                 if self.tracking:
                     self.skip_counter = self.skip_counter + 1
                 if self.skip_counter >= self.params['skip_threshold']:
@@ -64,7 +58,7 @@ class MovementAnalyzer:
                 self.kalman.statePre = np.array([[x], [y], [0], [0]], np.float32)
 
             cx, cy, _, _ = self.kalman.statePre.flatten().tolist()
-            if utils.dist(x, y, cx, cy) <= self.params['outlier_thresh']:
+            if utils.dist(x, y, cx, cy) <= self.params['outlier_thresh'] * self.params['resize']:
                 self.skip_counter = self.skip_counter - 1
 
             self.kalman.statePre = np.array([[x], [y], [0], [0]], np.float32)
@@ -90,20 +84,28 @@ class MovementAnalyzer:
 
                 if self.display:
 
+                    # Resize for visualization
+                    frame = cv2.resize(frame, (0, 0), fx=1/self.params['resize'], fy=1/self.params['resize'])
+
                     if head_circle is not None:
                         (x, y, r) = head_circle
+                        x = int(x / self.params['resize'])
+                        y = int(y / self.params['resize'])
+                        r = int(r / self.params['resize'])
                         cv2.circle(frame, (x, y), r, (0, 255, 0), 4)
                         cv2.circle(frame, (x, y), 2, (0, 255, 0), 3)
 
                     x, y, _, _ = self.kalman.statePost.flatten().tolist()
-                    cv2.circle(frame, (int(x), int(y)), 2, (255, 0, 0), 3)
+                    cv2.circle(frame, (int(x / self.params['resize']), int(y / self.params['resize'])),
+                               2, (255, 0, 0), 3)
 
-                    cv2.putText(img=frame, text=f"Tracking (counter = {self.skip_counter})", org=(15, 30),
+                    cv2.putText(img=frame, text=f"Tracking (sc = {self.skip_counter})", org=(15, 30),
                                 fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1,
                                 color=(0, 255, 0) if self.tracking else (0, 0, 255), thickness=2,
                                 lineType=cv2.LINE_AA)
 
-                    cv2.imshow("Head detection", frame)
+                    cv2.imshow("Player Tracking", frame)
+
                     # Break loop with 'q' key
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         break
@@ -124,55 +126,43 @@ class MovementAnalyzer:
             cy = int(cy)
             width = int(frame.shape[1] * self.params['bbox_base_width'])
             height = int(frame.shape[0] * self.params['bbox_base_height'])
-            body_box, punch_box, kick_box = utils.compute_roi(opt_flow.shape,
-                                                              centroid=(cx, cy),
-                                                              bbox_shape=(width, height),
-                                                              params=self.params,
-                                                              plot=self.display,
-                                                              target=frame)
+            bounding_boxes = utils.compute_roi(opt_flow.shape,
+                                               centroid=(cx, cy),
+                                               bbox_shape=(width, height),
+                                               params=self.params,
+                                               plot=self.display,
+                                               target=frame)
 
-            act_box_width = punch_box[2] - punch_box[0]
+            act_box_width = bounding_boxes['punch'][2] - bounding_boxes['punch'][0]
             if act_box_width >= 0:
-                # Use optical flow to identify punch
-                punch_box_flow = opt_flow[punch_box[1]:punch_box[3]+1, punch_box[0]:punch_box[2]+1]
-                mag, ang = cv2.cartToPolar(punch_box_flow[..., 0], punch_box_flow[..., 1])
-                non_zero = mag > 1
+                # Use optical flow to identify punch/kick
+                for action in ['kick', 'punch']:
 
-                if np.sum(non_zero) > 0.2 * mag.size:
-                    if np.mean(mag[non_zero]) > 10:
-                        if not self.mid_punch:
-                            self.mid_punch = True
-                            self.command_api.add_work_request("punch")
-                            self.punch_time = time.time()
-                if time.time() - self.punch_time > 0.5:
-                    self.mid_punch = False
+                    box_flow = opt_flow[bounding_boxes[action][1]:bounding_boxes[action][3]+1,
+                                        bounding_boxes[action][0]:bounding_boxes[action][2]+1]
+                    mag, ang = cv2.cartToPolar(box_flow[..., 0], box_flow[..., 1])
+                    non_zero = mag > 1
 
-                # Use optical flow to identify kick
-                kick_box_flow = opt_flow[kick_box[1]:kick_box[3]+1, kick_box[0]:kick_box[2]+1]
-                mag, ang = cv2.cartToPolar(kick_box_flow[..., 0], kick_box_flow[..., 1])
-                non_zero = mag > 1
-
-                if np.sum(non_zero) > 0.3 * mag.size:
-                    if np.mean(mag[non_zero]) > 10:
-                        if not self.mid_kick:
-                            self.mid_kick = True
-                            self.command_api.add_work_request("kick")
-                            self.kick_time = time.time()
-                if time.time() - self.kick_time > 0.5:
-                    self.mid_kick = False
-            else:
-                self.mid_kick = False
+                    if np.sum(non_zero) > self.params['opt_flow_punch_presence'] * mag.size:
+                        if np.mean(mag[non_zero]) > self.params['opt_flow_threshold'] * self.params['resize']:
+                            if not self.mid_action_dict[action]:
+                                self.mid_action_dict[action] = True
+                                self.command_api.add_work_request(action)
+                                self.action_times_dict[action] = time.time()
+                    if time.time() - self.action_times_dict[action] > self.params['time_between_actions']:
+                        self.mid_action_dict[action] = False
 
             # Use optical flow to identify jump
-            body_box_flow = opt_flow[body_box[1]:body_box[3]+1, body_box[0]:body_box[2]+1]
+            body_box_flow = opt_flow[bounding_boxes['body'][1]:bounding_boxes['body'][3]+1,
+                                     bounding_boxes['body'][0]:bounding_boxes['body'][2]+1]
 
-            if np.mean(body_box_flow[..., 1]) < -10:
-                if not self.mid_jump:
-                    self.mid_jump = True
+            if np.mean(body_box_flow[..., 1]) < - self.params['opt_flow_threshold'] * self.params['resize']:
+                if not self.mid_action_dict['jump']:
+                    self.mid_action_dict['jump'] = True
                     self.command_api.add_work_request("jump")
-                    self.jump_time = time.time()
-            elif time.time() - self.jump_time > 1:
-                self.mid_jump = False
+                    self.action_times_dict['jump'] = time.time()
+            elif time.time() - self.action_times_dict['jump'] > self.params['time_between_jumps']:
+                self.mid_action_dict['jump'] = False
 
     def track_motion(self, frame, head_circle):
 
@@ -186,6 +176,7 @@ class MovementAnalyzer:
         send a movement command with the opposite direction or send a 'Stand' command.
         This can be implemented using Kalman filter or center of mass tracking.        
         """
+
         if head_circle is not None:
             (x, y, r) = head_circle
             self.track_head(x, y)
@@ -200,27 +191,27 @@ class MovementAnalyzer:
             # Analyze motion
             _, y_new, vx, _ = self.kalman.statePost.flatten().tolist()
             y_new = int(y_new)
-            if abs(vx) > self.params['motion_thresh']:
-                if vx > self.params['motion_thresh']:
-                    if self.motion_state != "left":
+            if abs(vx) > self.params['motion_thresh'] * self.params['resize']:
+                if vx > self.params['motion_thresh'] * self.params['resize']:
+                    if self.state_dict['motion'] != "left":
                         self.command_api.add_work_request("left")
-                        self.motion_state = "left"
+                        self.state_dict['motion'] = "left"
                 else:
-                    if self.motion_state != "right":
+                    if self.state_dict['motion'] != "right":
                         self.command_api.add_work_request("right")
-                        self.motion_state = "right"
+                        self.state_dict['motion'] = "right"
             else:
-                if self.motion_state != "still":
+                if self.state_dict['motion'] != "still":
                     self.command_api.add_work_request("still")
-                    self.motion_state = "still"
+                    self.state_dict['motion'] = "still"
 
             # Analyze body position
             if y_new > self.params['crouch_thresh'] * frame.shape[0]:
-                if self.body_state != "crouch":
+                if self.state_dict['body'] != "crouch":
                     self.command_api.add_work_request("crouch")
-                    self.body_state = "crouch"
+                    self.state_dict['body'] = "crouch"
 
             else:
-                if self.body_state != "upright":
+                if self.state_dict['body'] != "upright":
                     self.command_api.add_work_request("upright")
-                    self.body_state = "upright"
+                    self.state_dict['body'] = "upright"
