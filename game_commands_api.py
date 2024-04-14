@@ -24,6 +24,7 @@ class CommandAPI:
         self.running = True
         self.motion_state = "still"
         self.body_state = "upright"
+        self.game_mode = False
         
         # Handlers for FSM actions
         self.motion_state_actions = ["still", "left", "right", "crouch", "upright"]
@@ -39,9 +40,14 @@ class CommandAPI:
         self.worker_thread = Thread(target=self.process_work_requests, daemon=False)
         self.worker_thread.start()
 
+    def flip_game_mode(self):
+        self.game_mode = not self.game_mode
+        print(f"game_mode = {self.game_mode}")
+
     # API to MovementAnalyzer threads
     def add_work_request(self, command):
-        self.work_request_queue.put(command)
+        if self.game_mode:
+            self.work_request_queue.put(command)
 
     def process_work_requests(self):
         while self.running:
@@ -54,9 +60,6 @@ class CommandAPI:
                     self.execute_instant_action(command)
                 else:
                     print("Error, unrecognized command...")
-
-                # Wait configurable delay time between consecutive operations.
-                # time.sleep(self.delay_time)
             else:
                 time.sleep(self.delay_time)
 

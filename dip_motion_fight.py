@@ -4,6 +4,7 @@ from game_commands_api import CommandAPI
 from movement_analyzer import MovementAnalyzer
 from utils import WindowMgr
 import pywintypes
+import keyboard
 
 
 def main():
@@ -29,7 +30,8 @@ def main():
     except pywintypes.error:
         print("Unable to find game window...")
 
-    # TODO: Add game UI navigation code
+    # Add pause button to alternate between game_mode and menue navigation 
+    keyboard.add_hotkey('space', command_api.flip_game_mode)
 
     # Begin playing
     frThread = frame_reader.start_capture()
