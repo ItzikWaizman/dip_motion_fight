@@ -2,7 +2,10 @@ import cv2
 import numpy as np
 import win32gui
 import re
+from pydirectinput import *
 
+KEY_DOWN_FLAGS = KEYEVENTF_SCANCODE
+KEY_UP_FLAGS = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP
 
 class WindowMgr:
     """Encapsulates calls to the winapi for window management"""
@@ -126,3 +129,24 @@ def dist(x1, y1, x2, y2):
     :return: Euclidean distance between (x1, y1) and (x2, y2)
     """
     return np.linalg.norm([x2 - x1, y2 - y1])
+
+
+def press_multiple_button(keys):
+    send_multiple_inputs(keys, KEY_DOWN_FLAGS)
+    send_multiple_inputs(keys, KEY_UP_FLAGS)
+
+def send_multiple_inputs(keys, flags):
+    inputs = []
+
+    for key in keys:
+        extra = ctypes.c_ulong(0)
+        ii_ = Input_I()
+        ii_.ki = KeyBdInput(0, KEYBOARD_MAPPING[key], flags, 0, ctypes.pointer(extra))
+        input_down = Input(ctypes.c_ulong(1), ii_)
+        inputs.append(input_down)
+
+    InputArray = Input * len(inputs)
+    input_array = InputArray(*inputs)
+
+    SendInput(len(inputs), ctypes.byref(input_array), ctypes.sizeof(input_array[0]))
+    time.sleep(PAUSE)
