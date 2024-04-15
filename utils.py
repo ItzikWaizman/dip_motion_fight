@@ -7,30 +7,67 @@ from pydirectinput import *
 KEY_DOWN_FLAGS = KEYEVENTF_SCANCODE
 KEY_UP_FLAGS = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP
 
+
 class WindowMgr:
-    """Encapsulates calls to the winapi for window management"""
+    """Encapsulates calls to the winapi for window management."""
 
     def __init__(self):
-        """Constructor"""
         self._handle = None
 
     def find_window(self, class_name, window_name=None):
-        """find a window by its class_name"""
+        """find a window by its class_name."""
         self._handle = win32gui.FindWindow(class_name, window_name)
 
     def _window_enum_callback(self, hwnd, wildcard):
-        """Pass to win32gui.EnumWindows() to check all the opened windows"""
+        """Pass to win32gui.EnumWindows() to check all the opened windows."""
         if re.match(wildcard, str(win32gui.GetWindowText(hwnd))) is not None:
             self._handle = hwnd
 
     def find_window_wildcard(self, wildcard):
-        """find a window whose title matches the wildcard regex"""
+        """Find a window whose title matches the wildcard regex."""
         self._handle = None
         win32gui.EnumWindows(self._window_enum_callback, wildcard)
 
     def set_foreground(self):
-        """put the window in the foreground"""
+        """Put the window in the foreground."""
         win32gui.SetForegroundWindow(self._handle)
+
+
+def press_multiple_button(keys):
+
+    """
+    Press multiple keyboard buttons simultaniously.
+
+    :param keys: string of all keys to press
+    """
+
+    send_multiple_inputs(keys, KEY_DOWN_FLAGS)
+    send_multiple_inputs(keys, KEY_UP_FLAGS)
+
+
+def send_multiple_inputs(keys, flags):
+
+    """
+    Send multiple keyboard inputs simultaniously.
+
+    :param keys: string of all keys to press
+    :param flags: press up or press down flags
+    """
+
+    inputs = []
+
+    for key in keys:
+        extra = ctypes.c_ulong(0)
+        ii_ = Input_I()
+        ii_.ki = KeyBdInput(0, KEYBOARD_MAPPING[key], flags, 0, ctypes.pointer(extra))
+        input_down = Input(ctypes.c_ulong(1), ii_)
+        inputs.append(input_down)
+
+    InputArray = Input * len(inputs)
+    input_array = InputArray(*inputs)
+
+    SendInput(len(inputs), ctypes.byref(input_array), ctypes.sizeof(input_array[0]))
+    time.sleep(PAUSE)
 
 
 def compute_roi(img_shape, centroid, bbox_shape, params, plot=True, target=None):
@@ -128,25 +165,5 @@ def dist(x1, y1, x2, y2):
 
     :return: Euclidean distance between (x1, y1) and (x2, y2)
     """
+
     return np.linalg.norm([x2 - x1, y2 - y1])
-
-
-def press_multiple_button(keys):
-    send_multiple_inputs(keys, KEY_DOWN_FLAGS)
-    send_multiple_inputs(keys, KEY_UP_FLAGS)
-
-def send_multiple_inputs(keys, flags):
-    inputs = []
-
-    for key in keys:
-        extra = ctypes.c_ulong(0)
-        ii_ = Input_I()
-        ii_.ki = KeyBdInput(0, KEYBOARD_MAPPING[key], flags, 0, ctypes.pointer(extra))
-        input_down = Input(ctypes.c_ulong(1), ii_)
-        inputs.append(input_down)
-
-    InputArray = Input * len(inputs)
-    input_array = InputArray(*inputs)
-
-    SendInput(len(inputs), ctypes.byref(input_array), ctypes.sizeof(input_array[0]))
-    time.sleep(PAUSE)

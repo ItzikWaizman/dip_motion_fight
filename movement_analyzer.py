@@ -27,6 +27,7 @@ class MovementAnalyzer:
         self.action_times_dict = {'punch': 0.0, 'kick': 0.0, 'jump': 0.0}
 
     def _init_kalman_filter(self):
+        """Initializes the kalman filter."""
         self.kalman = cv2.KalmanFilter(4, 2)
         self.kalman.measurementMatrix = np.array([[1, 0, 0, 0],
                                                   [0, 1, 0, 0]], np.float32)
@@ -41,9 +42,17 @@ class MovementAnalyzer:
         self.kalman.measurementNoiseCov = np.array(np.diag(self.params['obs_noise_var']), np.float32)
 
     def track_head(self, x, y):
+
+        """
+        Responsible for tracking the location of the player's head.
+        :param x: x coordinate of the player's head observation.
+        :param y: y coordinate of the player's head observation.
+        :return: Filtered Kalman state vector (x, y, vx, vy).
+        """
+
         if self.tracking:
             cx, cy, _, _ = self.kalman.statePost.flatten().tolist()
-            if utils.dist(x, y, cx, cy) > self.params['outlier_thresh'] * self.params['resize']:
+            if utils.dist(x, y, cx, cy) > self.params['outlier_thresh']:
                 if self.tracking:
                     self.skip_counter = self.skip_counter + 1
                 if self.skip_counter >= self.params['skip_threshold']:
@@ -58,7 +67,7 @@ class MovementAnalyzer:
                 self.kalman.statePre = np.array([[x], [y], [0], [0]], np.float32)
 
             cx, cy, _, _ = self.kalman.statePre.flatten().tolist()
-            if utils.dist(x, y, cx, cy) <= self.params['outlier_thresh'] * self.params['resize']:
+            if utils.dist(x, y, cx, cy) <= self.params['outlier_thresh']:
                 self.skip_counter = self.skip_counter - 1
 
             self.kalman.statePre = np.array([[x], [y], [0], [0]], np.float32)
@@ -70,23 +79,35 @@ class MovementAnalyzer:
         return self.kalman.statePost.flatten().tolist()
 
     def start_analysis(self):
+        """Creates a movement analysis thread"""
         th = Thread(target=self.analyze_movements, daemon=True)
         th.start()
         return th
     
     def analyze_movements(self):
+
+        """
+        Analyzes the frame for movement and gestures using the data from the frame reader.
+        """
+
         while self.running:
             frame_analysis = self.frame_reader.get_frame_analysis()
             if frame_analysis is not None:
+
+                # Get frame, optical flow and head location from the queue.
                 (frame, opt_flow, head_circle) = frame_analysis
+                # Track motion
                 self.track_motion(frame, head_circle)
+                # Analyze gestures
                 self.analyze_gestures(frame, opt_flow)
 
+                # Display player tracking
                 if self.display:
 
                     # Resize for visualization
                     frame = cv2.resize(frame, (0, 0), fx=1/self.params['resize'], fy=1/self.params['resize'])
 
+                    # Draw the player's head observed location and Kalman estimation.
                     if head_circle is not None:
                         (x, y, r) = head_circle
                         x = int(x / self.params['resize'])
@@ -96,10 +117,11 @@ class MovementAnalyzer:
                         cv2.circle(frame, (x, y), 2, (0, 255, 0), 3)
 
                     x, y, _, _ = self.kalman.statePost.flatten().tolist()
-                    cv2.circle(frame, (int(x / self.params['resize']), int(y / self.params['resize'])),
+                    cv2.circle(frame, (int(x/self.params['resize']), int(y/self.params['resize'])),
                                2, (255, 0, 0), 3)
 
-                    cv2.putText(img=frame, text=f"Tracking (sc = {self.skip_counter})", org=(15, 30),
+                    # Display tracking counter
+                    cv2.putText(img=frame, text=f"Tracking (skips = {self.skip_counter})", org=(15, 30),
                                 fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1,
                                 color=(0, 255, 0) if self.tracking else (0, 0, 255), thickness=2,
                                 lineType=cv2.LINE_AA)
@@ -121,6 +143,7 @@ class MovementAnalyzer:
         """
 
         if opt_flow is not None and self.tracking:
+            # Use the Kalman estimation to compute regions of interest
             cx, cy, _, _ = self.kalman.statePost.flatten().tolist()
             cx = int(cx)
             cy = int(cy)
@@ -144,7 +167,7 @@ class MovementAnalyzer:
                     non_zero = mag > 1
 
                     if np.sum(non_zero) > self.params['opt_flow_punch_presence'] * mag.size:
-                        if np.mean(mag[non_zero]) > self.params['opt_flow_threshold'] * self.params['resize']:
+                        if np.mean(mag[non_zero]) > self.params['opt_flow_threshold']:
                             if not self.mid_action_dict[action]:
                                 self.mid_action_dict[action] = True
                                 self.command_api.add_work_request(action)
@@ -156,7 +179,7 @@ class MovementAnalyzer:
             body_box_flow = opt_flow[bounding_boxes['body'][1]:bounding_boxes['body'][3]+1,
                                      bounding_boxes['body'][0]:bounding_boxes['body'][2]+1]
 
-            if np.mean(body_box_flow[..., 1]) < - self.params['opt_flow_threshold'] * self.params['resize']:
+            if np.mean(body_box_flow[..., 1]) < - self.params['opt_flow_threshold']:
                 if not self.mid_action_dict['jump']:
                     self.mid_action_dict['jump'] = True
                     self.command_api.add_work_request("jump")
@@ -167,14 +190,13 @@ class MovementAnalyzer:
     def track_motion(self, frame, head_circle):
 
         """
-        We implement a final state machine, including three states:
+        Implements a final state machine, including three states:
         1. 'Stand'
         2. 'Left'
         3. 'Right'
         The movements should be continuous, so initiating movement to a specific direction includes sending a movement
         command to the CommandAPI with the corresponding direction, and to stop movement in this direction we can either
         send a movement command with the opposite direction or send a 'Stand' command.
-        This can be implemented using Kalman filter or center of mass tracking.        
         """
 
         if head_circle is not None:
@@ -191,8 +213,8 @@ class MovementAnalyzer:
             # Analyze motion
             _, y_new, vx, _ = self.kalman.statePost.flatten().tolist()
             y_new = int(y_new)
-            if abs(vx) > self.params['motion_thresh'] * self.params['resize']:
-                if vx > self.params['motion_thresh'] * self.params['resize']:
+            if abs(vx) > self.params['motion_thresh']:
+                if vx > self.params['motion_thresh']:
                     if self.state_dict['motion'] != "left":
                         self.command_api.add_work_request("left")
                         self.state_dict['motion'] = "left"

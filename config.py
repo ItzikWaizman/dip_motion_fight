@@ -14,7 +14,7 @@ class Parameters(object):
         # Haar Cascade parameters
         self.params['Haar_scale'] = 1.1
         self.params['Haar_neighbors'] = 5
-        self.params['Haar_min_face_size'] = (30, 30)
+        self.params['Haar_min_face_size'] = (int(30 * self.params['resize']), int(30 * self.params['resize']))
 
         # Bounding box parameters
         self.params['orientation'] = "right"
@@ -27,15 +27,15 @@ class Parameters(object):
         # Instant action parameters
         self.params['time_between_actions'] = 0.5
         self.params['time_between_jumps'] = 1
-        self.params['opt_flow_threshold'] = 10
+        self.params['opt_flow_threshold'] = 10 * self.params['resize']
         self.params['opt_flow_punch_presence'] = 0.2
         self.params['opt_flow_kick_presence'] = 0.3
 
         # Kalman Filter & tracking parameters
-        self.params['obs_noise_var'] = [25, 25]
-        self.params['outlier_thresh'] = 150
+        self.params['obs_noise_var'] = [int(50 * self.params['resize']), int(50 * self.params['resize'])]
+        self.params['outlier_thresh'] = 150 * self.params['resize']
         self.params['skip_threshold'] = 10
-        self.params['motion_thresh'] = 7
+        self.params['motion_thresh'] = 7 * self.params['resize']
         self.params['crouch_thresh'] = 0.5
 
         # Command API parameters

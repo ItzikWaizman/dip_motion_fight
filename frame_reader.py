@@ -9,7 +9,7 @@ import time
 class FrameReader:
 
     """
-    Responsibilities: Read frames from the camera and perform initial processing - mainly player segmentation.
+    Responsibilities: Read frames from the camera and perform initial processing.
     The processed frames will be stored in a queue which will serve the consumer for movement analysis.
     """
 
@@ -26,11 +26,18 @@ class FrameReader:
             self.face_cascade = None
 
     def start_capture(self):
+        """Creates a frame reader thread"""
         th = Thread(target=self.read_frames, daemon=True)
         th.start()
         return th
 
     def read_frames(self):
+
+        """
+        Reads frames from the camera and performs initial processing - locates the player's head and computes optical
+        flow. Pushes the data to the queue.
+        """
+
         i = 0
 
         # Initialize previous frame
@@ -51,6 +58,7 @@ class FrameReader:
             if not ret:
                 break
 
+            # Flip the image if the camera is on the right
             if self.params['orientation'] == "right":
                 frame = cv2.flip(frame, 1)
 
@@ -77,7 +85,7 @@ class FrameReader:
                 self.frame_analysis_buffer.get()
             self.frame_analysis_buffer.put((frame, opt_flow, head_circle))
 
-            # Display segmentation and background
+            # Display optical flow
             if self.display:
                 if opt_flow is not None:
                     visual_optical_flow = utils.optical_flow_visualization(opt_flow)
@@ -86,7 +94,7 @@ class FrameReader:
 
                 # Resize for visualization
                 visual_optical_flow = cv2.resize(visual_optical_flow, (0, 0),
-                                                 fx=1 / self.params['resize'], fy=1 / self.params['resize'])
+                                                 fx=1/self.params['resize'], fy=1/self.params['resize'])
 
                 # Add fps display
                 cv2.putText(img=visual_optical_flow, text=f"fps: {self.fps}", org=(15, 30),
@@ -111,6 +119,12 @@ class FrameReader:
 
     def locate_head(self, frame):
 
+        """
+        Locatees the head of a person standing in profile to the camera.
+
+        :param frame: target frame.
+        """
+
         faces = self.face_cascade.detectMultiScale(frame,
                                                    scaleFactor=self.params['Haar_scale'],
                                                    minNeighbors=self.params['Haar_neighbors'],
@@ -123,6 +137,7 @@ class FrameReader:
             return None
 
     def get_frame_analysis(self):
+        """Getter for the frame analysis queue."""
         if not self.frame_analysis_buffer.empty():
             return self.frame_analysis_buffer.get()
         return None

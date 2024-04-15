@@ -30,7 +30,7 @@ def main():
     except pywintypes.error:
         print("Unable to find game window...")
 
-    # Add pause button to alternate between game_mode and menue navigation 
+    # Add pause button to alternate between game_mode and menu navigation
     keyboard.add_hotkey('space', command_api.flip_game_mode)
 
     # Begin playing

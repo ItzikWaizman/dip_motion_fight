@@ -2,14 +2,7 @@
 
 ### Pending
 
-- [ ] Propose different features to enhance user's experience, for example:
-  - [ ] Method to navigate through game's UI.
-  - [ ] Method to flip the controls if the characters change places in game.
-
 ### In Progress
-
-- [ ] Fine tune the parameters of the movement analyzer.
-- [ ] Support combos when related gestures are recorded with small delay between them.
 
 ### Done ✓
 
@@ -24,3 +17,5 @@ an anchor for the player's location.
 - [x] Organize the code of the movement analyzer:
   - [x] Add the thresholds to the config file.
   - [x] Organize the different actions in a dictionary.
+- [x] Fine tune the parameters of the movement analyzer.
+- [x] Support combos when related gestures are recorded with small delay between them.
