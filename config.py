@@ -4,7 +4,7 @@ class Parameters(object):
         self.params = dict()
 
         # Frame reader parameters
-        self.params['capture_device'] = 0  # External Camera
+        self.params['capture_device'] = 1  # External Camera
         self.params['frame_buffer_size'] = 10
         self.params['resize'] = 0.5  # Resize factor
 
@@ -17,12 +17,12 @@ class Parameters(object):
         self.params['Haar_min_face_size'] = (int(30 * self.params['resize']), int(30 * self.params['resize']))
 
         # Bounding box parameters
-        self.params['orientation'] = "right"
+        self.params['orientation'] = "left"
         # Bounding box (% of screen dimension)
         self.params['bbox_base_width'] = 0.25
         self.params['bbox_base_height'] = 0.8
         self.params['act_box_width'] = 0.15
-        self.params['spacing'] = 0.2  # Space between action box and centroid
+        self.params['spacing'] = 0.18  # Space between action box and centroid
 
         # Instant action parameters
         self.params['time_between_actions'] = 0.5
@@ -36,7 +36,7 @@ class Parameters(object):
         self.params['outlier_thresh'] = 150 * self.params['resize']
         self.params['skip_threshold'] = 10
         self.params['motion_thresh'] = 7 * self.params['resize']
-        self.params['crouch_thresh'] = 0.5
+        self.params['crouch_thresh'] = 0.45
 
         # Command API parameters
         self.params['game_commands_delay_time'] = 0.03

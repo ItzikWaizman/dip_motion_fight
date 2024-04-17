@@ -43,6 +43,7 @@ class CommandAPI:
     def flip_game_mode(self):
         """Flip the game_mode flag. Commands can be sent to the game only when game_mode is True"""
         self.game_mode = not self.game_mode
+        self.stop()
         print(f"game_mode = {self.game_mode}")
 
     # API to MovementAnalyzer threads
@@ -71,6 +72,7 @@ class CommandAPI:
                 time.sleep(self.delay_time)
 
         self.stop()
+        print("Command API terminated...")
 
     def handle_motion(self, command):
 
@@ -128,11 +130,9 @@ class CommandAPI:
 
     def stop(self):
         """Signal to stop the worker thread and ensure all keys are released"""
-        self.running = False
         if self.motion_state != "still":
             input.keyUp(self.motion_state)
             print(f"release {self.motion_state}")
         if self.body_state != "upright":
             input.keyUp("down")
             print("release down")
-        print("Command API terminated...")
