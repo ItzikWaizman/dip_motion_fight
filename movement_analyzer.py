@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import utils
 import time
+import pickle
 
 
 class MovementAnalyzer:
@@ -159,7 +160,7 @@ class MovementAnalyzer:
             act_box_width = bounding_boxes['punch'][2] - bounding_boxes['punch'][0]
             if act_box_width >= 0:
                 # Use optical flow to identify punch/kick
-                for action in ['kick', 'punch']:
+                for action in ['punch', 'kick']:
 
                     box_flow = opt_flow[bounding_boxes[action][1]:bounding_boxes[action][3]+1,
                                         bounding_boxes[action][0]:bounding_boxes[action][2]+1]
@@ -172,7 +173,7 @@ class MovementAnalyzer:
                                 self.mid_action_dict[action] = True
                                 self.command_api.add_work_request(action)
                                 self.action_times_dict[action] = time.time()
-                    if time.time() - self.action_times_dict[action] > self.params['time_between_actions']:
+                    if time.time() - self.action_times_dict[action] > self.params['time_between_actions'][action]:
                         self.mid_action_dict[action] = False
 
             # Use optical flow to identify jump

@@ -25,11 +25,11 @@ class Parameters(object):
         self.params['spacing'] = 0.18  # Space between action box and centroid
 
         # Instant action parameters
-        self.params['time_between_actions'] = 0.5
+        self.params['time_between_actions'] = {"punch": 0.5, "kick": 0.6}
         self.params['time_between_jumps'] = 1
         self.params['opt_flow_threshold'] = 10 * self.params['resize']
-        self.params['opt_flow_punch_presence'] = 0.2
-        self.params['opt_flow_kick_presence'] = 0.3
+        self.params['opt_flow_punch_presence'] = 0.25
+        self.params['opt_flow_kick_presence'] = 0.35
 
         # Kalman Filter & tracking parameters
         self.params['obs_noise_var'] = [int(50 * self.params['resize']), int(50 * self.params['resize'])]

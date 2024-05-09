@@ -3,3 +3,4 @@ numpy~=1.26.4
 PyDirectInput~=1.0.4
 keyboard~=0.13.5
 pypiwin32>=223
+pywin32>=306
